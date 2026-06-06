@@ -4,9 +4,21 @@ import streamlit as st
 from src.ai_client import get_ai_response
 from src.requirements_engine import compute_required_area
 
+# These nine fields gate the handoff to the map stage.
 REQUIRED_FIELDS = [
     "city", "population", "men", "women", "children",
     "climate", "duration", "cultural_notes", "special_needs",
+]
+
+# Collected through chat; do not gate the handoff.
+SERVICE_FIELDS = ["cause", "water_source", "power_source", "sanitation"]
+
+# The extraction call may ONLY write these fields.
+# population / men / women / children are intentionally excluded:
+# they can only be set via the quick-input Set button.
+EXTRACTABLE_FIELDS = [
+    "city", "climate", "duration", "cultural_notes", "special_needs",
+    "cause", "water_source", "power_source", "sanitation",
 ]
 
 _CONVERSATION_SYSTEM_PROMPT_BASE = """\
@@ -23,17 +35,31 @@ WHAT YOU MUST NOT DO:
 - If the user asks for a layout or facility list, say: "The tool will generate a \
   scored layout on the map once the site is confirmed — let's finish gathering \
   the basics first." Then ask for the next missing input.
+- NEVER state, announce, guess, or repeat any headcount figure (population total, \
+  or the men / women / children split). If headcount comes up, say: \
+  "Please enter the numbers using the Men / Women / Children boxes in the panel \
+  above the chat, then click Set — I'll pick them up automatically." \
+  Do not invent or confirm a figure yourself.
 
 WHAT YOU MAY DO:
-- Gather the nine required inputs, one question at a time.
-- Once population is known, state the approximate land needed in plain language, e.g.: \
-  "For 2,000 people you will need roughly 9 hectares, about 335 × 335 metres." \
-  (Formula: total area = population × 45 m²; suggested side = √(total area × 1.25).)
-  Do this exactly once — do not repeat it every turn.
+- Gather the required inputs (city, climate, duration, cultural notes, special needs), \
+  one question at a time.
+- Once population is shown in the sidebar as set, state the approximate land needed \
+  exactly once: e.g. "For 2,000 people you will need roughly 9 hectares, about \
+  335 × 335 metres." (Formula: total area = population × 45 m²; suggested side = \
+  √(total area × 1.25).) Do this exactly once — do not repeat it every turn.
+- After the core fields are covered, ask about each of the following service details \
+  once each, one at a time. These are optional — if the user says they do not know, \
+  accept that and move on: \
+  (1) cause or reason for the displacement, \
+  (2) available water source (e.g. municipal, borehole, trucking, river), \
+  (3) available power source (e.g. grid, generators, solar), \
+  (4) planned sanitation approach (e.g. portable toilets, pit latrines, sewer). \
+  Do not re-ask a service field that is already listed under ALREADY KNOWN.
 - If asked about site selection, share these general criteria: flat land, near existing \
   roads, not flood-prone, accessible to services, away from industrial or conflict hazards.
-- Acknowledge values the user has already entered via the quick-input panel; \
-  do not re-ask for anything listed under ALREADY KNOWN below.
+- Acknowledge values the user has already entered; do not re-ask for anything listed \
+  under ALREADY KNOWN below.
 
 STYLE:
 - Ask EXACTLY ONE question at a time.
@@ -53,14 +79,14 @@ explanation, no markdown, no code fences, just the raw JSON:
 
 {
   "city": <string or null>,
-  "population": <integer or null>,
-  "men": <integer or null>,
-  "women": <integer or null>,
-  "children": <integer or null>,
   "climate": <"warm" or "cold" or null>,
   "duration": <"emergency" or "protracted" or null>,
   "cultural_notes": <string or null>,
-  "special_needs": <string or null>
+  "special_needs": <string or null>,
+  "cause": <string or null>,
+  "water_source": <string or null>,
+  "power_source": <string or null>,
+  "sanitation": <string or null>
 }
 
 Extraction rules:
@@ -68,7 +94,8 @@ Extraction rules:
 - Use null for any field not yet mentioned.
 - climate: "warm" for hot/arid/tropical; "cold" for cold/temperate/mountain/arctic.
 - duration: "emergency" for acute/short-term; "protracted" for long-term/ongoing.
-- population, men, women, children must be integers, not strings.\
+- Do NOT extract headcount figures. population, men, women, and children are \
+  entered only via the UI panel and must never appear in this JSON.\
 """
 
 _OPENING_MESSAGE = (
@@ -79,11 +106,12 @@ _OPENING_MESSAGE = (
 )
 
 
-# ── Unchanged logic ───────────────────────────────────────────────────────────
+# ── Prompt builder ────────────────────────────────────────────────────────────
 
 def _build_conversation_prompt() -> str:
     inputs = st.session_state["site_inputs"]
-    known = {k: v for k, v in inputs.items() if k in REQUIRED_FIELDS and v is not None}
+    all_tracked = REQUIRED_FIELDS + SERVICE_FIELDS
+    known = {k: v for k, v in inputs.items() if k in all_tracked and v is not None}
     prompt = _CONVERSATION_SYSTEM_PROMPT_BASE
     if known:
         lines = "\n".join(f"  {k}: {v}" for k, v in known.items())
@@ -118,19 +146,15 @@ def _extract_inputs(chat_history: list) -> dict | None:
 
 
 def _merge_inputs(extracted: dict | None) -> None:
+    """Write extracted values into session state, but ONLY for EXTRACTABLE_FIELDS.
+    population / men / women / children are never written here."""
     if not extracted or not isinstance(extracted, dict):
         return
     inputs = st.session_state["site_inputs"]
-    for field in REQUIRED_FIELDS:
+    for field in EXTRACTABLE_FIELDS:
         value = extracted.get(field)
         if value is not None:
             inputs[field] = value
-    m, w, c = inputs.get("men"), inputs.get("women"), inputs.get("children")
-    if m is not None and w is not None and c is not None:
-        inputs["population"] = m + w + c
-    pop = inputs.get("population")
-    if pop and pop > 0:
-        _update_area(inputs, pop)
 
 
 def _all_collected() -> bool:
@@ -152,7 +176,7 @@ def _render_sidebar(inputs: dict) -> None:
             else:
                 st.markdown(f"**{label}:** :gray[not set yet]")
 
-        _row("Location",  inputs.get("city"))
+        _row("Location",   inputs.get("city"))
         _row("Population", inputs.get("population"), lambda v: f"{v:,}")
 
         m, w, c = inputs.get("men"), inputs.get("women"), inputs.get("children")
@@ -162,8 +186,8 @@ def _render_sidebar(inputs: dict) -> None:
         else:
             st.markdown("**Men / Women / Children:** :gray[not set yet]")
 
-        _row("Climate",  inputs.get("climate"),  str.capitalize)
-        _row("Duration", inputs.get("duration"), str.capitalize)
+        _row("Climate",       inputs.get("climate"),  str.capitalize)
+        _row("Duration",      inputs.get("duration"), str.capitalize)
         _row("Cultural notes", inputs.get("cultural_notes"))
         _row("Special needs",  inputs.get("special_needs"))
 
@@ -173,6 +197,16 @@ def _render_sidebar(inputs: dict) -> None:
             st.markdown(f"**Required area:** ~{ha:.1f} ha (about {side} × {side} m)")
         else:
             st.markdown("**Required area:** :gray[not set yet]")
+
+        # Site services — subheading appears only once at least one is filled
+        svc = {f: inputs.get(f) for f in SERVICE_FIELDS}
+        if any(v is not None for v in svc.values()):
+            st.divider()
+            st.markdown("#### Site services")
+            _row("Cause",        svc["cause"])
+            _row("Water source", svc["water_source"])
+            _row("Power source", svc["power_source"])
+            _row("Sanitation",   svc["sanitation"])
 
 
 # ── Quick inputs: inline row above chat input ─────────────────────────────────
@@ -254,7 +288,7 @@ def _render_quick_inputs(inputs: dict) -> None:
                     _update_area(inputs, m + w + c)
                 st.rerun()
 
-        # Warn when all draft values are filled and they don't match committed total
+        # Warn when draft values don't match committed total
         draft_m = drafts.get("men", inputs.get("men") or 0)
         draft_w = drafts.get("women", inputs.get("women") or 0)
         draft_c = drafts.get("children", inputs.get("children") or 0)
@@ -313,7 +347,8 @@ def render_input_stage() -> None:
 
     inputs = st.session_state["site_inputs"]
 
-    # Derive population from already-committed components (never from draft state).
+    # Recompute population from committed components each render (Set button is
+    # the only source; this just keeps the derived total in sync).
     m, w, c = inputs.get("men"), inputs.get("women"), inputs.get("children")
     if m is not None and w is not None and c is not None:
         inputs["population"] = m + w + c
