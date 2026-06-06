@@ -220,8 +220,6 @@ def _render_quick_inputs(inputs: dict) -> None:
         "women":    inputs.get("women")    is None,
         "children": inputs.get("children") is None,
     }
-    all_breakdown_set = not any(needs[f] for f in ("men", "women", "children"))
-    needs["population"] = inputs.get("population") is None and not all_breakdown_set
 
     if not any(needs.values()):
         return
@@ -249,18 +247,6 @@ def _render_quick_inputs(inputs: dict) -> None:
                 key=f"qbtn_{value}",
             ):
                 inputs[field] = value
-                st.rerun()
-
-    # ── Population box with its own Set button ───────────────────
-    if needs["population"]:
-        pop_col, set_col = st.columns([3, 1])
-        draft_pop = pop_col.number_input(
-            "Total people", min_value=0, step=100, key="draft_population",
-        )
-        if set_col.button("Set", key="set_population", use_container_width=True):
-            if draft_pop > 0:
-                inputs["population"] = int(draft_pop)
-                _update_area(inputs, int(draft_pop))
                 st.rerun()
 
     # ── Breakdown boxes with a single Set button ──────────────────
