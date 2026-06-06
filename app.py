@@ -1,6 +1,8 @@
 import streamlit as st
+import streamlit.components.v1 as components
 from src.conversation import render_input_stage
 from src.location import render_location_stage
+from src.summary import render_summary_stage
 
 st.set_page_config(page_title="Refugee Camp Layout Generator", layout="wide")
 
@@ -30,10 +32,7 @@ def stage_location():
 
 
 def stage_summary():
-    st.header("Stage: Summary")
-    st.write("Placeholder — review collected inputs here.")
-    if st.button("Next →", key="btn_summary"):
-        advance_stage()
+    render_summary_stage()
 
 
 def stage_layout():
@@ -64,10 +63,23 @@ STAGE_HANDLERS = {
 }
 
 
+def _scroll_to_top() -> None:
+    components.html(
+        "<script>window.parent.scrollTo({top: 0, behavior: 'instant'});</script>",
+        height=0,
+    )
+
+
 def main():
     init_session_state()
+
+    current_stage = st.session_state["stage"]
+    if st.session_state.get("_prev_stage") != current_stage:
+        st.session_state["_prev_stage"] = current_stage
+        _scroll_to_top()
+
     st.title("Refugee Camp Layout Generator")
-    STAGE_HANDLERS[st.session_state["stage"]]()
+    STAGE_HANDLERS[current_stage]()
 
 
 if __name__ == "__main__":

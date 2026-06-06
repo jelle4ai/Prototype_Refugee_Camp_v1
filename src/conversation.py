@@ -81,8 +81,8 @@ explanation, no markdown, no code fences, just the raw JSON:
   "city": <string or null>,
   "climate": <"warm" or "cold" or null>,
   "duration": <"emergency" or "protracted" or null>,
-  "cultural_notes": <string or null>,
-  "special_needs": <string or null>,
+  "cultural_notes": <string, "None specified", or null>,
+  "special_needs": <string, "None specified", or null>,
   "cause": <string or null>,
   "water_source": <string or null>,
   "power_source": <string or null>,
@@ -90,8 +90,15 @@ explanation, no markdown, no code fences, just the raw JSON:
 }
 
 Extraction rules:
+- Reason over the ENTIRE conversation from start to finish, not just the most \
+  recent message. Include values the user mentioned in any earlier message.
 - Extract ONLY values the user has explicitly stated. Never infer or guess.
-- Use null for any field not yet mentioned.
+- Use null for any field not yet mentioned by the user in any message.
+- cultural_notes and special_needs: if the user explicitly says there are none \
+  (e.g. "none", "no", "n/a", "nothing", "not applicable", "none that I know of", \
+  "no special needs", "no cultural notes"), return the string "None specified" — \
+  this is a real answer. null means the topic was never mentioned at all.
+- If the user corrects a field they gave earlier, use the newer value.
 - climate: "warm" for hot/arid/tropical; "cold" for cold/temperate/mountain/arctic.
 - duration: "emergency" for acute/short-term; "protracted" for long-term/ongoing.
 - Do NOT extract headcount figures. population, men, women, and children are \
