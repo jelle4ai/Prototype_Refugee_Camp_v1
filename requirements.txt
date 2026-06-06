@@ -4,3 +4,4 @@ shapely
 networkx
 geopy
 anthropic
+requests

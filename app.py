@@ -1,5 +1,6 @@
 import streamlit as st
 from src.conversation import render_input_stage
+from src.location import render_location_stage
 
 st.set_page_config(page_title="Refugee Camp Layout Generator", layout="wide")
 
@@ -25,10 +26,7 @@ def stage_input():
 
 
 def stage_location():
-    st.header("Stage: Location")
-    st.write("Placeholder — map-based location selection here.")
-    if st.button("Next →", key="btn_location"):
-        advance_stage()
+    render_location_stage()
 
 
 def stage_summary():
@@ -41,6 +39,11 @@ def stage_summary():
 def stage_layout():
     st.header("Stage: Layout")
     st.write("Placeholder — generated camp layout displayed here.")
+    site = st.session_state.get("site")
+    if site:
+        summary = {k: v for k, v in site.items() if k != "roads_m"}
+        summary["roads_count"] = len(site.get("roads_m", []))
+        st.json(summary)
     if st.button("Next →", key="btn_layout"):
         advance_stage()
 
