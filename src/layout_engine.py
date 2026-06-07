@@ -10,8 +10,9 @@ place_all_facilities(site, requirements, shelter_result) -> dict
   Hard rule: nothing placed outside the parcel polygon.
 """
 from math import ceil, sqrt, pi, cos as _cos, sin as _sin
-from shapely.geometry import Polygon as ShapelyPolygon, Point as ShapelyPoint
+from shapely.geometry import Polygon as ShapelyPolygon, Point as ShapelyPoint, LineString as _ShapelyLine
 from shapely.ops import unary_union
+import networkx as _nx
 
 
 # ── Colours (used by app.py for drawing) ─────────────────────────────────────
@@ -358,3 +359,251 @@ def place_all_facilities(site: dict,
 
     out["status"] = status
     return out
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Road network  (PA1 main road · PA2/PA4 secondary roads and footpaths)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _dist2(a: tuple, b: tuple) -> float:
+    return (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2
+
+
+def _nearest_on_polyline(pts: list,
+                         px: float, py: float) -> tuple[float, float, float]:
+    """
+    Nearest point on polyline *pts* to (px, py).
+    Returns (x, y, distance).
+    """
+    if len(pts) == 1:
+        return pts[0][0], pts[0][1], _dist2(pts[0], (px, py)) ** 0.5
+    bx, by, bd2 = pts[0][0], pts[0][1], float("inf")
+    for i in range(len(pts) - 1):
+        ax, ay = pts[i]
+        ex_, ey_ = pts[i + 1]
+        ddx, ddy = ex_ - ax, ey_ - ay
+        len2 = ddx * ddx + ddy * ddy
+        if len2 < 1e-10:
+            nx_, ny_ = ax, ay
+        else:
+            t = max(0.0, min(1.0, ((px - ax) * ddx + (py - ay) * ddy) / len2))
+            nx_, ny_ = ax + t * ddx, ay + t * ddy
+        d2 = (px - nx_) ** 2 + (py - ny_) ** 2
+        if d2 < bd2:
+            bd2, bx, by = d2, nx_, ny_
+    return bx, by, bd2 ** 0.5
+
+
+def _clip_to_parcel(parcel: ShapelyPolygon,
+                    p1: tuple, p2: tuple) -> list | None:
+    """
+    Clip segment p1→p2 to inside *parcel*.
+    Returns list of (x, y) tuples or None if no overlap.
+    """
+    line = _ShapelyLine([p1, p2])
+    clipped = line.intersection(parcel)
+    if clipped.is_empty:
+        return None
+    if clipped.geom_type == "LineString":
+        return list(clipped.coords)
+    if clipped.geom_type == "MultiLineString":
+        longest = max(clipped.geoms, key=lambda g: g.length)
+        return list(longest.coords)
+    return None
+
+
+def place_roads(site: dict,
+                shelter_result: dict,
+                facilities: dict) -> dict:
+    """
+    Build a camp road network in CS5 / UNHCR PA standard priority order.
+
+    Returns
+    -------
+    dict with keys:
+      main_road        list[{pts_m}]           PA1 – 6 m wide on map
+      secondary_roads  list[{pts_m}]           PA2 – 4 m wide
+      footpaths        list[{pts_m}]           PA4 – 4 m wide
+      existing_roads   list[{pts_m}]           from site["roads_m"]
+      entrance_m       (x, y)
+      connected        bool
+      stranded         list[str]
+    """
+    parcel = ShapelyPolygon(site["parcel_polygon_m"])
+    rep    = parcel.representative_point()
+
+    # ── Entrance: boundary vertex nearest to external roads ───────────────────
+    ex, ey = _entry_point(site)
+
+    # ── Health post centre (main road target) ─────────────────────────────────
+    hp_items = facilities.get("health_post", [])
+    if hp_items:
+        c = hp_items[0]["corners_m"]
+        hp_cx = sum(p[0] for p in c) / len(c)
+        hp_cy = sum(p[1] for p in c) / len(c)
+    else:
+        hp_cx, hp_cy = rep.x, rep.y
+
+    # ── 1. Main road: entrance → parcel centroid → health post ────────────────
+    raw_wp = [(ex, ey), (rep.x, rep.y), (hp_cx, hp_cy)]
+    waypoints: list[tuple] = [raw_wp[0]]
+    for pt in raw_wp[1:]:
+        if _dist2(pt, waypoints[-1]) > 25:      # skip if < 5 m apart
+            waypoints.append(pt)
+
+    main_segs: list[dict] = []
+    main_pts:  list[tuple] = []
+    for i in range(len(waypoints) - 1):
+        clipped = _clip_to_parcel(parcel, waypoints[i], waypoints[i + 1])
+        if clipped:
+            main_segs.append({"pts_m": clipped})
+            for pt in clipped:
+                if not main_pts or _dist2(pt, main_pts[-1]) > 1:
+                    main_pts.append(pt)
+
+    if not main_pts:                             # fallback: straight line
+        main_pts  = [(ex, ey), (rep.x, rep.y)]
+        main_segs = [{"pts_m": list(main_pts)}]
+
+    # ── 2. Secondary roads: each major facility → nearest point on main road ──
+    _FAC_KEYS = [
+        "health_post", "water_points", "food_distribution",
+        "community_space", "administrative_area", "schools", "worship_facility",
+    ]
+    secondary_segs: list[dict] = []
+    fac_pts: dict[str, tuple] = {}      # node_name → (x, y)
+
+    for key in _FAC_KEYS:
+        for idx, item in enumerate(facilities.get(key, [])):
+            c = item["corners_m"]
+            fcx = sum(p[0] for p in c) / len(c)
+            fcy = sum(p[1] for p in c) / len(c)
+            node_name = f"{key}_{idx}"
+            fac_pts[node_name] = (fcx, fcy)
+            if len(main_pts) >= 2:
+                cx_, cy_, _ = _nearest_on_polyline(main_pts, fcx, fcy)
+            else:
+                cx_, cy_ = main_pts[0]
+            if _dist2((fcx, fcy), (cx_, cy_)) > 4:     # skip if < 2 m from road
+                clipped = _clip_to_parcel(parcel, (fcx, fcy), (cx_, cy_))
+                if clipped:
+                    secondary_segs.append({"pts_m": clipped,
+                                           "_node": node_name,
+                                           "_conn": (cx_, cy_)})
+
+    # ── 3. Footpaths: shelter bands → nearest road node ───────────────────────
+    shelters = shelter_result.get("shelters", [])
+    footpath_segs: list[dict] = []
+    band_pts: dict[str, tuple] = {}
+
+    if shelters:
+        sh_cens = []
+        for s in shelters:
+            c = s["corners_m"]
+            sh_cens.append((sum(p[0] for p in c) / len(c),
+                            sum(p[1] for p in c) / len(c)))
+        sh_cens.sort(key=lambda p: p[1])        # bottom → top
+
+        n_bands   = max(1, min(8, len(sh_cens) // 30))
+        band_size = max(1, len(sh_cens) // n_bands)
+
+        all_road_pts = list(main_pts)
+        for seg in secondary_segs:
+            all_road_pts.extend(seg["pts_m"])
+
+        for b in range(n_bands):
+            start = b * band_size
+            end   = start + band_size if b < n_bands - 1 else len(sh_cens)
+            band  = sh_cens[start:end]
+            bcx   = sum(p[0] for p in band) / len(band)
+            bcy   = sum(p[1] for p in band) / len(band)
+            band_name = f"shelter_band_{b}"
+            band_pts[band_name] = (bcx, bcy)
+
+            rpts = all_road_pts if len(all_road_pts) >= 2 else [main_pts[0]]
+            if len(rpts) >= 2:
+                cx_, cy_, _ = _nearest_on_polyline(rpts, bcx, bcy)
+            else:
+                cx_, cy_ = rpts[0]
+            if _dist2((bcx, bcy), (cx_, cy_)) > 4:
+                clipped = _clip_to_parcel(parcel, (bcx, bcy), (cx_, cy_))
+                if clipped:
+                    footpath_segs.append({"pts_m": clipped, "_node": band_name})
+
+    # ── 4. Existing OSM roads (already in local metres) ───────────────────────
+    existing_segs = [
+        {"pts_m": list(r)}
+        for r in (site.get("roads_m") or [])
+        if len(r) >= 2
+    ]
+
+    # ── 5. NetworkX connectivity check ───────────────────────────────────────
+    connected = True
+    stranded:  list[str] = []
+    G         = _nx.Graph()
+    node_pos: dict[str, tuple] = {}
+
+    def _add_node(name: str, pos: tuple) -> None:
+        G.add_node(name)
+        node_pos[name] = pos
+
+    def _add_edge(a: str, b: str) -> None:
+        G.add_edge(a, b, weight=_dist2(node_pos[a], node_pos[b]) ** 0.5)
+
+    # Entrance and main road chain
+    _add_node("entrance", (ex, ey))
+    prev_node = "entrance"
+    for i, pt in enumerate(main_pts[1:], 1):
+        nn = f"main_{i}"
+        _add_node(nn, pt)
+        _add_edge(prev_node, nn)
+        prev_node = nn
+    main_nodes = ["entrance"] + [f"main_{i}" for i in range(1, len(main_pts))]
+
+    def _nearest_main(px: float, py: float) -> str:
+        return min(main_nodes, key=lambda n: _dist2(node_pos[n], (px, py)))
+
+    # Facility nodes connected via secondary roads
+    for node_name, (fx, fy) in fac_pts.items():
+        _add_node(node_name, (fx, fy))
+        seg = next((s for s in secondary_segs if s.get("_node") == node_name), None)
+        if seg:
+            _add_edge(node_name, _nearest_main(*seg["_conn"]))
+        else:
+            _add_edge(node_name, _nearest_main(fx, fy))
+
+    # Shelter band nodes connected via footpaths
+    all_settled = main_nodes + list(fac_pts)
+    for band_name, (bx, by) in band_pts.items():
+        _add_node(band_name, (bx, by))
+        seg = next((s for s in footpath_segs if s.get("_node") == band_name), None)
+        if seg:
+            nearest = min(all_settled, key=lambda n: _dist2(node_pos[n], (bx, by)))
+            _add_edge(band_name, nearest)
+        else:
+            _add_edge(band_name, _nearest_main(bx, by))
+
+    # Existing road endpoints linked to entrance
+    for i, eseg in enumerate(existing_segs):
+        nn = f"existing_{i}"
+        _add_node(nn, eseg["pts_m"][0])
+        G.add_edge(nn, "entrance")
+
+    if G.number_of_nodes() > 0:
+        connected = _nx.is_connected(G)
+        if not connected:
+            comps     = list(_nx.connected_components(G))
+            main_comp = max(comps, key=len)
+            stranded  = sorted(
+                n for comp in comps if comp is not main_comp for n in comp
+            )
+
+    return {
+        "main_road":       main_segs,
+        "secondary_roads": secondary_segs,
+        "footpaths":       footpath_segs,
+        "existing_roads":  existing_segs,
+        "entrance_m":      (ex, ey),
+        "connected":       connected,
+        "stranded":        stranded,
+    }

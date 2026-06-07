@@ -3,7 +3,7 @@ import streamlit.components.v1 as components
 import plotly.graph_objects as go
 from math import cos, radians
 from src.conversation import render_input_stage
-from src.layout_engine import place_shelters, place_all_facilities, FACILITY_STYLE
+from src.layout_engine import place_shelters, place_all_facilities, place_roads, FACILITY_STYLE
 from src.location import render_location_stage
 from src.requirements_engine import compute_requirements
 from src.site_search import metres_to_latlon
@@ -67,9 +67,31 @@ def _packed_trace(items: list[dict],
     )
 
 
+def _road_trace(segments: list[dict],
+                origin_lat: float, origin_lon: float,
+                label: str, color: str, width: float) -> go.Scattermapbox:
+    """Pack road polyline segments into one Scattermapbox line trace."""
+    lats: list = []
+    lons: list = []
+    for seg in segments:
+        for x, y in seg["pts_m"]:
+            la, lo = metres_to_latlon(x, y, origin_lat, origin_lon)
+            lats.append(la)
+            lons.append(lo)
+        lats.append(None)
+        lons.append(None)
+    return go.Scattermapbox(
+        lat=lats, lon=lons,
+        mode="lines",
+        line=dict(color=color, width=width),
+        name=label,
+    )
+
+
 def _layout_map(site: dict,
                 shelters: list[dict],
-                facilities: dict) -> go.Figure:
+                facilities: dict,
+                roads: dict | None = None) -> go.Figure:
     """Plotly map with parcel outline, shelters, and all placed facilities."""
     origin_lat = site["origin_lat"]
     origin_lon = site["origin_lon"]
@@ -91,6 +113,35 @@ def _layout_map(site: dict,
         line=dict(color="#e63946", width=2),
         name="Parcel boundary",
     )]
+
+    # ── Roads (drawn first so facilities/shelters appear on top) ─────────────
+    if roads:
+        if roads.get("existing_roads"):
+            traces.append(_road_trace(
+                roads["existing_roads"], origin_lat, origin_lon,
+                "Existing roads", "#707070", 2.5,
+            ))
+        if roads.get("main_road"):
+            traces.append(_road_trace(
+                roads["main_road"], origin_lat, origin_lon,
+                "Main road (PA1)", "#A0A0A0", 4,
+            ))
+        sec = roads.get("secondary_roads", []) + roads.get("footpaths", [])
+        if sec:
+            traces.append(_road_trace(
+                sec, origin_lat, origin_lon,
+                "Secondary roads / footpaths (PA2)", "#C8C8C8", 2,
+            ))
+        # Entrance marker
+        ex_m = roads.get("entrance_m")
+        if ex_m:
+            e_la, e_lo = metres_to_latlon(ex_m[0], ex_m[1], origin_lat, origin_lon)
+            traces.append(go.Scattermapbox(
+                lat=[e_la], lon=[e_lo],
+                mode="markers",
+                marker=dict(size=12, color="#FF4500"),
+                name="Entrance",
+            ))
 
     # ── Shelters ──────────────────────────────────────────────────────────────
     if shelters:
@@ -159,10 +210,11 @@ def stage_layout():
     shelter_result = place_shelters(site, reqs)
     facilities     = place_all_facilities(site, reqs, shelter_result)
     fac_status     = facilities.get("status", {})
+    roads          = place_roads(site, shelter_result, facilities)
 
     # ── Map ───────────────────────────────────────────────────────────────────
     st.plotly_chart(
-        _layout_map(site, shelter_result["shelters"], facilities),
+        _layout_map(site, shelter_result["shelters"], facilities, roads),
         use_container_width=True,
     )
 
@@ -194,6 +246,29 @@ def stage_layout():
         else:
             ok = f"partial ({p}/{r})"
         status_rows.append({"Facility": label, "Placed": p, "Required": r, "OK": ok})
+
+    # ── Road network rows ─────────────────────────────────────────────────────
+    conn     = roads.get("connected", True)
+    stranded = roads.get("stranded", [])
+    ex_m     = roads.get("entrance_m", (0.0, 0.0))
+    if conn:
+        conn_ok = "yes"
+    else:
+        conn_ok = f"no — stranded: {', '.join(stranded[:4])}" + (
+            f" (+{len(stranded) - 4} more)" if len(stranded) > 4 else ""
+        )
+    status_rows.append({
+        "Facility": "Road network (PA1+PA2+PA4)",
+        "Placed": "connected" if conn else f"partial ({len(stranded)} stranded)",
+        "Required": "fully connected",
+        "OK": conn_ok,
+    })
+    status_rows.append({
+        "Facility": "Entrance",
+        "Placed": f"({ex_m[0]:.0f}, {ex_m[1]:.0f}) m",
+        "Required": "on boundary",
+        "OK": "yes",
+    })
 
     st.table(status_rows)
 
