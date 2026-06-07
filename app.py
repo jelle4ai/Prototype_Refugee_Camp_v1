@@ -3,7 +3,7 @@ import streamlit.components.v1 as components
 import plotly.graph_objects as go
 from math import cos, radians
 from src.conversation import render_input_stage
-from src.layout_engine import place_shelters
+from src.layout_engine import place_shelters, place_all_facilities, FACILITY_STYLE
 from src.location import render_location_stage
 from src.requirements_engine import compute_requirements
 from src.site_search import metres_to_latlon
@@ -40,8 +40,37 @@ def stage_summary():
     render_summary_stage()
 
 
-def _layout_map(site: dict, shelters: list[dict]) -> go.Figure:
-    """Plotly map showing the parcel outline and placed shelter rectangles."""
+def _packed_trace(items: list[dict],
+                  origin_lat: float, origin_lon: float,
+                  label: str, fill: str, line: str,
+                  opacity: float = 0.80) -> go.Scattermapbox:
+    """Convert a list of {corners_m} items into one multi-polygon Scattermapbox trace."""
+    lats: list = []
+    lons: list = []
+    for item in items:
+        pts = item["corners_m"]
+        closed = pts + [pts[0]]
+        for x, y in closed:
+            la, lo = metres_to_latlon(x, y, origin_lat, origin_lon)
+            lats.append(la)
+            lons.append(lo)
+        lats.append(None)
+        lons.append(None)
+    r, g, b = int(fill[1:3], 16), int(fill[3:5], 16), int(fill[5:7], 16)
+    return go.Scattermapbox(
+        lat=lats, lon=lons,
+        mode="lines",
+        fill="toself",
+        fillcolor=f"rgba({r},{g},{b},{opacity})",
+        line=dict(color=line, width=1),
+        name=label,
+    )
+
+
+def _layout_map(site: dict,
+                shelters: list[dict],
+                facilities: dict) -> go.Figure:
+    """Plotly map with parcel outline, shelters, and all placed facilities."""
     origin_lat = site["origin_lat"]
     origin_lon = site["origin_lon"]
 
@@ -58,34 +87,36 @@ def _layout_map(site: dict, shelters: list[dict]) -> go.Figure:
     traces: list = [go.Scattermapbox(
         lat=p_lats, lon=p_lons,
         mode="lines",
-        fill="toself", fillcolor="rgba(230,57,70,0.08)",
+        fill="toself", fillcolor="rgba(230,57,70,0.06)",
         line=dict(color="#e63946", width=2),
         name="Parcel boundary",
     )]
 
-    # ── Shelter rectangles — packed into one multi-polygon trace ──────────────
+    # ── Shelters ──────────────────────────────────────────────────────────────
     if shelters:
-        s_lats: list = []
-        s_lons: list = []
-        for sh in shelters:
-            closed = sh["corners_m"] + [sh["corners_m"][0]]
-            for x, y in closed:
-                la, lo = metres_to_latlon(x, y, origin_lat, origin_lon)
-                s_lats.append(la)
-                s_lons.append(lo)
-            s_lats.append(None)
-            s_lons.append(None)
-
-        traces.append(go.Scattermapbox(
-            lat=s_lats, lon=s_lons,
-            mode="lines",
-            fill="toself",
-            fillcolor="rgba(245,222,179,0.75)",
-            line=dict(color="#C4A882", width=1),
-            name=f"Shelter units ({len(shelters)})",
+        label, fill, line = FACILITY_STYLE["shelter_units"]
+        traces.append(_packed_trace(
+            shelters, origin_lat, origin_lon,
+            f"{label} ({len(shelters)})", fill, line, opacity=0.75,
         ))
 
-    # ── Map zoom from parcel span ─────────────────────────────────────────────
+    # ── Other facilities in draw order ────────────────────────────────────────
+    draw_order = [
+        "toilets", "washing_facilities", "schools",
+        "water_points", "community_space", "food_distribution",
+        "administrative_area", "worship_facility", "health_post",
+    ]
+    for key in draw_order:
+        items = facilities.get(key, [])
+        if not items:
+            continue
+        label, fill, line = FACILITY_STYLE[key]
+        traces.append(_packed_trace(
+            items, origin_lat, origin_lon,
+            f"{label} ({len(items)})", fill, line,
+        ))
+
+    # ── Zoom ──────────────────────────────────────────────────────────────────
     lat_span_km = (max(p_lats) - min(p_lats)) * 111.32
     lon_span_km = (max(p_lons) - min(p_lons)) * 111.32 * cos(radians(mid_lat))
     span_km = max(lat_span_km, lon_span_km, 0.05)
@@ -99,10 +130,11 @@ def _layout_map(site: dict, shelters: list[dict]) -> go.Figure:
             zoom=zoom,
         ),
         margin=dict(l=0, r=0, t=0, b=0),
-        height=520,
+        height=560,
         legend=dict(
             yanchor="top", y=0.99, xanchor="left", x=0.01,
-            bgcolor="rgba(255,255,255,0.85)",
+            bgcolor="rgba(255,255,255,0.88)",
+            font=dict(size=11),
         ),
     )
     return fig
@@ -115,55 +147,80 @@ def stage_layout():
     site   = st.session_state.get("site")
     reqs   = compute_requirements(inputs)
 
-    # ── Shelter placement ─────────────────────────────────────────────────────
-    if site and reqs:
-        result = place_shelters(site, reqs)
-        placed   = result["placed"]
-        required = result["required"]
-        shelters = result["shelters"]
-
-        if placed < required:
-            st.warning(
-                f"Placed **{placed}** of **{required}** shelter units — "
-                "parcel is too small to fit all units within the boundary."
-            )
-        else:
-            st.success(f"Placed **{placed}** of **{required}** shelter units.")
-
-        st.plotly_chart(_layout_map(site, shelters), use_container_width=True)
-    else:
+    if not (site and reqs):
         st.info("No site or population data — cannot compute layout.")
+        if st.button("Next →", key="btn_layout"):
+            advance_stage()
+        return
+
+    # ── Placement ─────────────────────────────────────────────────────────────
+    shelter_result = place_shelters(site, reqs)
+    facilities     = place_all_facilities(site, reqs, shelter_result)
+    fac_status     = facilities.get("status", {})
+
+    # ── Map ───────────────────────────────────────────────────────────────────
+    st.plotly_chart(
+        _layout_map(site, shelter_result["shelters"], facilities),
+        use_container_width=True,
+    )
+
+    # ── Placement status ──────────────────────────────────────────────────────
+    st.subheader("Placement status")
+    sh_p, sh_r = shelter_result["placed"], shelter_result["required"]
+    status_rows = [{"Facility": "Shelter units",
+                    "Placed": sh_p, "Required": sh_r,
+                    "OK": "yes" if sh_p == sh_r else f"partial ({sh_p}/{sh_r})"}]
+
+    fac_display = [
+        ("health_post",         "Health post"),
+        ("water_points",        "Water points"),
+        ("food_distribution",   "Food distribution"),
+        ("community_space",     "Community space"),
+        ("administrative_area", "Administrative area"),
+        ("schools",             "Schools"),
+        ("worship_facility",    "Worship facility"),
+        ("toilets",             "Latrine blocks"),
+        ("washing_facilities",  "Washing facilities"),
+    ]
+    for key, label in fac_display:
+        s = fac_status.get(key, {})
+        p, r = s.get("placed", 0), s.get("required", 0)
+        if r == 0:
+            ok = "n/a"
+        elif p == r:
+            ok = "yes"
+        else:
+            ok = f"partial ({p}/{r})"
+        status_rows.append({"Facility": label, "Placed": p, "Required": r, "OK": ok})
+
+    st.table(status_rows)
 
     # ── Facility requirements table ───────────────────────────────────────────
     st.subheader("Facility requirements")
-    if reqs:
-        rows = []
-        for key, data in reqs.items():
-            name  = key.replace("_", " ").title()
-            count = data["count"]
-            if key == "shelter_units":
-                count_display = f"{count}  (× {data['area_per_unit_m2']} m²/unit)"
-            elif key == "schools" and data.get("area_m2", 0) > 0:
-                count_display = f"{count}  ({data['area_m2']} m² learning area)"
-            else:
-                count_display = str(count)
-            rows.append({
-                "Facility":    name,
-                "Count / Area": count_display,
-                "Unit":        data.get("unit", ""),
-                "Constraint":  data.get("constraint", ""),
-                "Explanation": data.get("explanation", ""),
-            })
-        st.table(rows)
-    else:
-        st.info("No population data found — requirements cannot be computed.")
+    req_rows = []
+    for key, data in reqs.items():
+        name  = key.replace("_", " ").title()
+        count = data["count"]
+        if key == "shelter_units":
+            count_display = f"{count}  (× {data['area_per_unit_m2']} m²/unit)"
+        elif key == "schools" and data.get("area_m2", 0) > 0:
+            count_display = f"{count}  ({data['area_m2']} m² learning area)"
+        else:
+            count_display = str(count)
+        req_rows.append({
+            "Facility":     name,
+            "Count / Area": count_display,
+            "Unit":         data.get("unit", ""),
+            "Constraint":   data.get("constraint", ""),
+            "Explanation":  data.get("explanation", ""),
+        })
+    st.table(req_rows)
 
     # ── Site debug JSON ───────────────────────────────────────────────────────
-    if site:
-        with st.expander("Site data (debug)"):
-            summary = {k: v for k, v in site.items() if k != "roads_m"}
-            summary["roads_count"] = len(site.get("roads_m", []))
-            st.json(summary)
+    with st.expander("Site data (debug)"):
+        summary = {k: v for k, v in site.items() if k != "roads_m"}
+        summary["roads_count"] = len(site.get("roads_m", []))
+        st.json(summary)
 
     if st.button("Next →", key="btn_layout"):
         advance_stage()
