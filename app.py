@@ -2,6 +2,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 from src.conversation import render_input_stage
 from src.location import render_location_stage
+from src.requirements_engine import compute_requirements
 from src.summary import render_summary_stage
 
 st.set_page_config(page_title="Refugee Camp Layout Generator", layout="wide")
@@ -37,12 +38,42 @@ def stage_summary():
 
 def stage_layout():
     st.header("Stage: Layout")
-    st.write("Placeholder — generated camp layout displayed here.")
+
+    inputs = st.session_state.get("site_inputs", {})
     site = st.session_state.get("site")
+    reqs = compute_requirements(inputs)
+
+    st.subheader("Facility requirements")
+    if reqs:
+        rows = []
+        for key, data in reqs.items():
+            name = key.replace("_", " ").title()
+            count = data["count"]
+
+            if key == "shelter_units":
+                count_display = f"{count}  (× {data['area_per_unit_m2']} m²/unit)"
+            elif key == "schools" and data.get("area_m2", 0) > 0:
+                count_display = f"{count}  ({data['area_m2']} m² learning area)"
+            else:
+                count_display = str(count)
+
+            rows.append({
+                "Facility": name,
+                "Count / Area": count_display,
+                "Unit": data.get("unit", ""),
+                "Constraint": data.get("constraint", ""),
+                "Explanation": data.get("explanation", ""),
+            })
+        st.table(rows)
+    else:
+        st.info("No population data found — requirements cannot be computed.")
+
     if site:
+        st.subheader("Site data (debug)")
         summary = {k: v for k, v in site.items() if k != "roads_m"}
         summary["roads_count"] = len(site.get("roads_m", []))
         st.json(summary)
+
     if st.button("Next →", key="btn_layout"):
         advance_stage()
 
