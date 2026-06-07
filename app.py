@@ -133,8 +133,10 @@ def _layout_map(site: dict,
         height=560,
         legend=dict(
             yanchor="top", y=0.99, xanchor="left", x=0.01,
-            bgcolor="rgba(255,255,255,0.88)",
-            font=dict(size=11),
+            bgcolor="rgba(255,255,255,0.95)",
+            bordercolor="#cccccc",
+            borderwidth=1,
+            font=dict(size=11, color="#000000"),
         ),
     )
     return fig
