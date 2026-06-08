@@ -4,6 +4,7 @@ import plotly.graph_objects as go
 from math import cos, radians
 from src.conversation import render_input_stage
 from src.layout_engine import place_shelters, place_all_facilities, place_roads, FACILITY_STYLE
+from src.scoring import score_layout
 from src.location import render_location_stage
 from src.requirements_engine import compute_requirements
 from src.site_search import metres_to_latlon
@@ -211,6 +212,27 @@ def stage_layout():
     facilities     = place_all_facilities(site, reqs, shelter_result)
     fac_status     = facilities.get("status", {})
     roads          = place_roads(site, shelter_result, facilities)
+
+    # ── Score ─────────────────────────────────────────────────────────────────
+    _layout = {"shelter_result": shelter_result, "facilities": facilities, "roads": roads}
+    score  = score_layout(_layout, site, reqs)
+    total  = score["total"]
+    _color = "#2e7d32" if total >= 80 else "#e65100" if total >= 50 else "#c62828"
+    st.markdown(
+        f"<div style='font-size:2.4rem;font-weight:700;color:{_color};"
+        f"margin-bottom:0.3rem'>Layout Score: {total} / 100</div>",
+        unsafe_allow_html=True,
+    )
+    with st.expander("Score breakdown"):
+        score_rows = [
+            {
+                "Component":   c["name"].replace("_", " ").title(),
+                "Score":       f"{c['points']}/10",
+                "Explanation": c["explanation"],
+            }
+            for c in score["components"]
+        ]
+        st.table(score_rows)
 
     # ── Map ───────────────────────────────────────────────────────────────────
     st.plotly_chart(
