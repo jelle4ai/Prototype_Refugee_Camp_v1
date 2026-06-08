@@ -2,6 +2,10 @@
 Scoring engine for refugee camp layouts.
 
 score_layout(layout, site, requirements) -> dict
+
+Total (0-100) is a weighted sum:
+  shelter_distribution ×4, site_utilisation ×4, overlap_avoidance ×2,
+  all other components ×1  (max weighted score = 170, scaled to 100).
 """
 from math import sqrt
 from shapely.geometry import Polygon as _Poly, Point as _Pt
@@ -14,6 +18,14 @@ _FAC_KEYS = [
     "worship_facility", "toilets", "washing_facilities",
 ]
 
+# Facilities placed in deliberate locations (not grid-spread).
+# Used for site_utilisation so that grid-spread latrines/schools don't
+# artificially fill all zones and inflate the score.
+_SITING_KEYS = [
+    "health_post", "food_distribution", "community_space",
+    "administrative_area", "worship_facility",
+]
+
 _REQ_TO_FAC = {
     "health_posts":             "health_post",
     "water_points":             "water_points",
@@ -24,6 +36,20 @@ _REQ_TO_FAC = {
     "worship_facility":         "worship_facility",
     "toilets":                  "toilets",
     "washing_facilities":       "washing_facilities",
+}
+
+# Component weights for the total (sum = 17).
+_WEIGHTS = {
+    "shelter_distribution":    4,
+    "water_coverage":          1,
+    "sanitation_distribution": 1,
+    "school_accessibility":    1,
+    "road_connectivity":       1,
+    "constraint_compliance":   1,
+    "site_utilisation":        4,
+    "entrance_quality":        1,
+    "overlap_avoidance":       2,
+    "expansion_buffer":        1,
 }
 
 
@@ -54,18 +80,17 @@ def _all_polys(shelters: list, facilities: dict) -> list:
     return polys
 
 
-# ── Component scorers ─────────────────────────────────────────────────────────
-
-def _c1_shelter_distribution(shelters: list, parcel: _Poly) -> tuple[int, str]:
-    """Are shelters spread across the buildable area?"""
-    if not shelters:
-        return 0, "No shelters placed"
-    centroids = [_centroid(s["corners_m"]) for s in shelters]
+def _compute_grid_fill(centroids: list,
+                       parcel: _Poly) -> tuple[float, int, int]:
+    """
+    Count how many cells in a 3×3 grid over the parcel contain at least
+    one centroid.  Returns (fraction, occupied_count, valid_count).
+    """
     minx, miny, maxx, maxy = parcel.bounds
     dx = (maxx - minx) / 3
     dy = (maxy - miny) / 3
     occupied: set = set()
-    valid_cells = 0
+    valid = 0
     for ci in range(3):
         for cj in range(3):
             cell = _Poly([
@@ -75,16 +100,26 @@ def _c1_shelter_distribution(shelters: list, parcel: _Poly) -> tuple[int, str]:
                 (minx + ci * dx,       miny + (cj + 1) * dy),
             ])
             if parcel.intersects(cell):
-                valid_cells += 1
+                valid += 1
                 if any(cell.contains(_Pt(cx, cy)) for cx, cy in centroids):
                     occupied.add((ci, cj))
-    if valid_cells == 0:
-        return 5, "Cannot evaluate distribution — parcel too small"
-    frac = len(occupied) / valid_cells
-    pts = round(frac * 10)
-    label = "good" if frac >= 0.7 else "moderate" if frac >= 0.4 else "poor"
+    if valid == 0:
+        return 0.0, 0, 0
+    return len(occupied) / valid, len(occupied), valid
+
+
+# ── Component scorers ─────────────────────────────────────────────────────────
+
+def _c1_shelter_distribution(shelters: list, parcel: _Poly,
+                              sh_gf: float, sh_occ: int,
+                              sh_valid: int) -> tuple[int, str]:
+    """Are shelters spread across the buildable area?"""
+    if not shelters:
+        return 0, "No shelters placed"
+    pts = round(sh_gf * 10)
+    label = "good" if sh_gf >= 0.7 else "moderate" if sh_gf >= 0.4 else "poor"
     return pts, (
-        f"Shelters in {len(occupied)}/{valid_cells} grid zones — {label} spread across parcel"
+        f"Shelters in {sh_occ}/{sh_valid} grid zones — {label} spread across parcel"
     )
 
 
@@ -232,26 +267,24 @@ def _c6_constraint_compliance(shelter_result: dict,
 
 
 def _c7_site_utilisation(shelters: list, facilities: dict,
-                          parcel: _Poly) -> tuple[int, str]:
-    """Proportion of parcel within 10 m of a placed element (SH10)."""
-    polys = _all_polys(shelters, facilities)
-    if not polys:
+                          siting_gf: float, siting_occ: int,
+                          sh_valid: int) -> tuple[int, str]:
+    """How evenly shelters and deliberately-placed facilities fill the parcel.
+
+    Uses the same 3×3 grid as shelter_distribution, counting zones that
+    contain at least one shelter centroid or a deliberately-sited facility
+    centroid (health post, food, community space, admin, worship).
+    Grid-spread elements (latrines, water points, schools) are excluded so
+    they cannot artificially fill zones that are genuinely empty (SH10).
+    """
+    if not shelters and not any(facilities.get(k) for k in _SITING_KEYS):
         return 0, "No elements placed — parcel entirely unused"
-    zone = unary_union(polys).buffer(10.0).intersection(parcel)
-    coverage = zone.area / parcel.area
-    if coverage >= 0.60:
-        pts = 10
-    elif coverage >= 0.30:
-        pts = 5 + round((coverage - 0.30) / 0.30 * 5)
-    elif coverage >= 0.10:
-        pts = 2 + round((coverage - 0.10) / 0.20 * 3)
-    else:
-        pts = max(0, round(coverage / 0.10 * 2))
-    label = ("good" if coverage >= 0.60
-             else "moderate — parts of parcel unused" if coverage >= 0.30
-             else "poor — large empty regions exist")
+    pts = round(siting_gf * 10)
+    label = ("good" if siting_gf >= 0.7
+             else "moderate — several zones empty" if siting_gf >= 0.4
+             else "poor — most of parcel unused")
     return pts, (
-        f"{100 * coverage:.0f}% of parcel within 10 m of a placed element — "
+        f"{siting_occ}/{sh_valid} zones contain shelters/key facilities — "
         f"{label} (SH10)"
     )
 
@@ -291,8 +324,8 @@ def _c9_overlap_avoidance(shelters: list, facilities: dict) -> tuple[int, str]:
     if overlap_area < 0.5:
         return 10, "No significant footprint overlaps detected (< 0.5 m²)"
     overlap_frac = overlap_area / total_area
-    # 10 % overlap → 0 pts; linear
-    pts = max(0, round((1.0 - overlap_frac / 0.10) * 10))
+    # 5 % overlap → 0 pts; linear (stricter than 10 % to catch clustered facilities)
+    pts = max(0, round((1.0 - overlap_frac / 0.05) * 10))
     return pts, (
         f"{overlap_area:.1f} m² overlapping area "
         f"({100 * overlap_frac:.1f}% of total footprint)"
@@ -300,32 +333,53 @@ def _c9_overlap_avoidance(shelters: list, facilities: dict) -> tuple[int, str]:
 
 
 def _c10_expansion_buffer(shelters: list, facilities: dict,
-                           parcel: _Poly) -> tuple[int, str]:
-    """Largest contiguous free area available as expansion space (SH10)."""
+                           parcel: _Poly, sh_gf: float) -> tuple[int, str]:
+    """Reward expansion space only when the camp is already well-spread (SH10).
+
+    A large empty area from poor placement is NOT a buffer — it is the same
+    wasted space that shelter_distribution and site_utilisation already
+    penalise.  The score scales with how well shelters fill the parcel first,
+    then with how much contiguous free area remains.
+    """
     polys = _all_polys(shelters, facilities)
     if not polys:
         return 5, "No elements placed — cannot evaluate (scored conservatively)"
-    used = unary_union(polys).buffer(3.0)   # 3 m claimed margin around each element
+
+    used = unary_union(polys).buffer(3.0)
     leftover = parcel.difference(used)
     if leftover.is_empty:
         return 0, "No free space remaining — no expansion possible"
+
     largest = (
         max(leftover.geoms, key=lambda g: g.area)
         if hasattr(leftover, "geoms") else leftover
     )
-    frac = largest.area / parcel.area
-    if frac >= 0.30:
-        pts = min(10, round(frac * 15))
-        label = "good expansion buffer"
-    elif frac >= 0.10:
-        pts = max(2, round(frac * 15))
-        label = "limited expansion buffer"
+    leftover_frac = largest.area / parcel.area
+
+    if sh_gf < 0.40:
+        # Shelters barely spread — emptiness = incomplete placement, not reserve
+        pts = max(0, round(sh_gf * 5))   # 0–2 pts
+        label = (
+            f"shelters occupy only {round(sh_gf * 9)}/9 zones; "
+            f"free space is unplanned emptiness, not a buffer"
+        )
+    elif sh_gf < 0.70:
+        # Partial spread — give limited credit, weighted toward camp quality
+        quality_pts   = round((sh_gf - 0.40) / 0.30 * 6)          # 0–6
+        leftover_pts  = round(min(leftover_frac, 0.20) / 0.20 * 2) # 0–2
+        pts = quality_pts + leftover_pts                            # 0–8
+        label = "partial spread — free area is partly unplanned"
     else:
-        pts = max(0, round(frac * 15))
-        label = "minimal contiguous expansion space"
+        # Camp well-spread: score based on leftover size
+        leftover_pts = round(min(leftover_frac, 0.30) / 0.30 * 10)
+        pts = max(5, leftover_pts)
+        label = ("good planned expansion reserve" if leftover_frac >= 0.15
+                 else "limited expansion space — camp is dense")
+
     return pts, (
-        f"Largest contiguous free area: {largest.area:.0f} m² "
-        f"({100 * frac:.0f}% of parcel) — {label} (SH10)"
+        f"Largest free area: {largest.area:.0f} m² "
+        f"({100 * leftover_frac:.0f}% of parcel), "
+        f"{round(sh_gf * 9)}/9 shelter zones occupied — {label} (SH10)"
     )
 
 
@@ -343,7 +397,12 @@ def score_layout(layout: dict, site: dict, requirements: dict) -> dict:
 
     Returns
     -------
-    {"total": int, "components": [{"name", "points", "max", "explanation"}, ...]}
+    {"total": int, "components": [{"name", "points", "max", "weight",
+    "explanation"}, ...]}
+
+    Scoring weights (see _WEIGHTS): shelter_distribution ×4,
+    site_utilisation ×4, overlap_avoidance ×2, all others ×1.
+    Total = round(weighted_sum / 170 * 100).
     """
     shelter_result = layout.get("shelter_result", {})
     facilities     = layout.get("facilities", {})
@@ -351,8 +410,24 @@ def score_layout(layout: dict, site: dict, requirements: dict) -> dict:
     shelters       = shelter_result.get("shelters", [])
     parcel         = _Poly(site["parcel_polygon_m"])
 
+    # ── Pre-compute grid fills used by multiple components ────────────────────
+    sh_cens = [_centroid(s["corners_m"]) for s in shelters]
+    siting_cens = list(sh_cens)
+    for k in _SITING_KEYS:
+        for item in facilities.get(k, []):
+            try:
+                siting_cens.append(_centroid(item["corners_m"]))
+            except Exception:
+                pass
+
+    # Shelter-only grid fill → drives shelter_distribution and expansion_buffer
+    sh_gf, sh_occ, sh_valid = _compute_grid_fill(sh_cens, parcel)
+    # Shelter + deliberately-sited facilities → drives site_utilisation
+    sit_gf, sit_occ, _ = _compute_grid_fill(siting_cens, parcel)
+
     scorers = [
-        ("shelter_distribution",    lambda: _c1_shelter_distribution(shelters, parcel)),
+        ("shelter_distribution",    lambda: _c1_shelter_distribution(
+                                        shelters, parcel, sh_gf, sh_occ, sh_valid)),
         ("water_coverage",          lambda: _c2_water_coverage(
                                         shelters, facilities.get("water_points", []))),
         ("sanitation_distribution", lambda: _c3_sanitation_distribution(
@@ -362,21 +437,30 @@ def score_layout(layout: dict, site: dict, requirements: dict) -> dict:
         ("road_connectivity",       lambda: _c5_road_connectivity(roads)),
         ("constraint_compliance",   lambda: _c6_constraint_compliance(
                                         shelter_result, facilities, requirements)),
-        ("site_utilisation",        lambda: _c7_site_utilisation(shelters, facilities, parcel)),
+        ("site_utilisation",        lambda: _c7_site_utilisation(
+                                        shelters, facilities, sit_gf, sit_occ, sh_valid)),
         ("entrance_quality",        lambda: _c8_entrance_quality(site, roads)),
         ("overlap_avoidance",       lambda: _c9_overlap_avoidance(shelters, facilities)),
-        ("expansion_buffer",        lambda: _c10_expansion_buffer(shelters, facilities, parcel)),
+        ("expansion_buffer",        lambda: _c10_expansion_buffer(
+                                        shelters, facilities, parcel, sh_gf)),
     ]
 
     components = []
+    weighted_sum = 0
+    max_weighted = sum(_WEIGHTS.values()) * 10  # = 170
+
     for name, fn in scorers:
         pts, expl = fn()
+        pts = max(0, min(10, int(round(pts))))
+        w = _WEIGHTS[name]
+        weighted_sum += pts * w
         components.append({
             "name":        name,
-            "points":      max(0, min(10, int(round(pts)))),
+            "points":      pts,
             "max":         10,
+            "weight":      w,
             "explanation": expl,
         })
 
-    total = sum(c["points"] for c in components)
+    total = round(weighted_sum / max_weighted * 100)
     return {"total": total, "components": components}

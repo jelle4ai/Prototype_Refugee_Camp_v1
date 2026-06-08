@@ -228,6 +228,7 @@ def stage_layout():
             {
                 "Component":   c["name"].replace("_", " ").title(),
                 "Score":       f"{c['points']}/10",
+                "Weight":      f"×{c['weight']}",
                 "Explanation": c["explanation"],
             }
             for c in score["components"]
