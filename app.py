@@ -3,8 +3,11 @@ import streamlit.components.v1 as components
 import plotly.graph_objects as go
 from math import cos, radians
 from src.conversation import render_input_stage
-from src.layout_engine import place_shelters, place_all_facilities, place_roads, FACILITY_STYLE
-from src.scoring import score_layout
+from src.layout_engine import (
+    place_shelters, place_all_facilities, place_roads,
+    optimise_facilities, FACILITY_STYLE,
+)
+from src.scoring import score_layout, compliance_gate
 from src.location import render_location_stage
 from src.requirements_engine import compute_requirements
 from src.site_search import metres_to_latlon
@@ -194,6 +197,18 @@ def _layout_map(site: dict,
     return fig
 
 
+def _run_placement(site: dict, reqs: dict) -> tuple[dict, dict, dict]:
+    """
+    Place facilities (CS5 order) then shelters, returning
+    (shelter_result, facilities, roads).  Caches result in session state.
+    """
+    facilities     = place_all_facilities(site, reqs)
+    occupied_geo   = facilities.pop("_occupied_geo", None)
+    shelter_result = place_shelters(site, reqs, occupied_geo=occupied_geo)
+    roads          = place_roads(site, shelter_result, facilities)
+    return shelter_result, facilities, roads
+
+
 def stage_layout():
     st.header("Stage: Layout")
 
@@ -207,23 +222,83 @@ def stage_layout():
             advance_stage()
         return
 
-    # ── Placement ─────────────────────────────────────────────────────────────
-    shelter_result = place_shelters(site, reqs)
-    facilities     = place_all_facilities(site, reqs, shelter_result)
-    fac_status     = facilities.get("status", {})
-    roads          = place_roads(site, shelter_result, facilities)
+    # ── Placement (cached in session state so the optimiser can update it) ────
+    if "layout_result" not in st.session_state:
+        with st.spinner("Placing facilities and shelters…"):
+            sr, fac, rd = _run_placement(site, reqs)
+        st.session_state["layout_result"] = {"shelter_result": sr,
+                                              "facilities": fac,
+                                              "roads": rd,
+                                              "opt_log": []}
+        st.rerun()
 
-    # ── Score ─────────────────────────────────────────────────────────────────
+    lr          = st.session_state["layout_result"]
+    shelter_result = lr["shelter_result"]
+    facilities     = lr["facilities"]
+    roads          = lr["roads"]
+    opt_log        = lr.get("opt_log", [])
+    fac_status     = facilities.get("status", {})
+
+    # ── Optimiser button (Step 2) ─────────────────────────────────────────────
+    col_opt, col_reset = st.columns([2, 1])
+    if col_opt.button("Optimise layout", key="btn_optimise",
+                      help="Run greedy improvement loop (10 iterations max)"):
+        with st.spinner("Optimising facility positions…"):
+            fac_new, new_log = optimise_facilities(
+                site, reqs, facilities, shelter_result, roads, max_iter=10
+            )
+        lr["facilities"] = fac_new
+        lr["opt_log"]    = new_log
+        # Regenerate roads with improved positions
+        lr["roads"] = place_roads(site, shelter_result, fac_new)
+        st.rerun()
+
+    if col_reset.button("Reset layout", key="btn_reset_layout"):
+        del st.session_state["layout_result"]
+        st.rerun()
+
+    if opt_log:
+        with st.expander(f"Optimiser log ({len(opt_log)} entries)"):
+            for entry in opt_log:
+                st.text(entry)
+
+    # ── Compliance gate (Step 3) ──────────────────────────────────────────────
     _layout = {"shelter_result": shelter_result, "facilities": facilities, "roads": roads}
+    gate    = compliance_gate(_layout, site, reqs)
+
+    if gate["pass"]:
+        st.success("**Compliance gate: PASS** — all hard constraints satisfied")
+    else:
+        st.error("**Compliance gate: FAIL** — one or more hard constraints violated")
+
+    failed = [c for c in gate["checks"] if not c["pass"]]
+    passed = [c for c in gate["checks"] if c["pass"]]
+
+    with st.expander(
+        f"Compliance checks — {len(passed)} passed, {len(failed)} failed",
+        expanded=not gate["pass"],
+    ):
+        for c in gate["checks"]:
+            icon = "✓" if c["pass"] else "✗"
+            colour = "#2e7d32" if c["pass"] else "#c62828"
+            st.markdown(
+                f"<span style='color:{colour};font-weight:600'>{icon} {c['name']}</span>"
+                f" — {c['detail']}",
+                unsafe_allow_html=True,
+            )
+
+    # ── Quality score (Step 3) — only meaningful if gate passes ──────────────
     score  = score_layout(_layout, site, reqs)
-    total  = score["total"]
+    total  = score["quality"]["total"]
     _color = "#2e7d32" if total >= 80 else "#e65100" if total >= 50 else "#c62828"
+    gate_note = "" if gate["pass"] else " *(non-compliant layout)*"
     st.markdown(
-        f"<div style='font-size:2.4rem;font-weight:700;color:{_color};"
-        f"margin-bottom:0.3rem'>Layout Score: {total} / 100</div>",
+        f"<div style='font-size:2.2rem;font-weight:700;color:{_color};"
+        f"margin-top:0.6rem;margin-bottom:0.2rem'>"
+        f"Quality score: {total} / 100{gate_note}</div>",
         unsafe_allow_html=True,
     )
-    with st.expander("Score breakdown"):
+    with st.expander("Quality score breakdown"):
         score_rows = [
             {
                 "Component":   c["name"].replace("_", " ").title(),
@@ -231,7 +306,7 @@ def stage_layout():
                 "Weight":      f"×{c['weight']}",
                 "Explanation": c["explanation"],
             }
-            for c in score["components"]
+            for c in score["quality"]["components"]
         ]
         st.table(score_rows)
 

@@ -1,7 +1,7 @@
-streamlit
-plotly
-shapely
-networkx
-geopy
-anthropic
-requests
+streamlit==1.58.0
+plotly==6.8.0
+shapely==2.1.2
+networkx==3.6.1
+geopy==2.4.1
+anthropic==0.106.0
+requests==2.34.2

@@ -1,11 +1,22 @@
 """
 Scoring engine for refugee camp layouts.
 
-score_layout(layout, site, requirements) -> dict
+Public API
+----------
+compliance_gate(layout, site, requirements) -> dict
+  Hard pass/fail check of all binding constraints.
+  Returns {"pass": bool, "checks": [{"name", "pass", "detail"}, ...]}.
+  A layout that fails any check is non-compliant regardless of quality score.
 
-Total (0-100) is a weighted sum:
+score_layout(layout, site, requirements) -> dict
+  Returns {"gate": gate_result, "quality": quality_result,
+           "total": int, "components": list}
+  where "total" and "components" mirror quality_result for backward compatibility.
+
+Quality score (0–100) is a weighted sum of 9 components (constraint_compliance
+has been removed — it is now the gate):
   shelter_distribution ×4, site_utilisation ×4, overlap_avoidance ×2,
-  all other components ×1  (max weighted score = 170, scaled to 100).
+  all others ×1  (max weighted = 160, scaled to 100).
 """
 from math import sqrt
 from shapely.geometry import Polygon as _Poly, Point as _Pt
@@ -18,9 +29,6 @@ _FAC_KEYS = [
     "worship_facility", "toilets", "washing_facilities",
 ]
 
-# Facilities placed in deliberate locations (not grid-spread).
-# Used for site_utilisation so that grid-spread latrines/schools don't
-# artificially fill all zones and inflate the score.
 _SITING_KEYS = [
     "health_post", "food_distribution", "community_space",
     "administrative_area", "worship_facility",
@@ -38,14 +46,14 @@ _REQ_TO_FAC = {
     "washing_facilities":       "washing_facilities",
 }
 
-# Component weights for the total (sum = 17).
+# Quality weights (constraint_compliance removed — now in compliance_gate).
+# Sum = 16, max weighted = 160.
 _WEIGHTS = {
     "shelter_distribution":    4,
     "water_coverage":          1,
     "sanitation_distribution": 1,
     "school_accessibility":    1,
     "road_connectivity":       1,
-    "constraint_compliance":   1,
     "site_utilisation":        4,
     "entrance_quality":        1,
     "overlap_avoidance":       2,
@@ -53,10 +61,13 @@ _WEIGHTS = {
 }
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Shared geometry helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
 def _centroid(corners: list) -> tuple[float, float]:
-    x = sum(p[0] for p in corners) / len(corners)
-    y = sum(p[1] for p in corners) / len(corners)
-    return x, y
+    return (sum(p[0] for p in corners) / len(corners),
+            sum(p[1] for p in corners) / len(corners))
 
 
 def _dist(a: tuple, b: tuple) -> float:
@@ -80,12 +91,8 @@ def _all_polys(shelters: list, facilities: dict) -> list:
     return polys
 
 
-def _compute_grid_fill(centroids: list,
-                       parcel: _Poly) -> tuple[float, int, int]:
-    """
-    Count how many cells in a 3×3 grid over the parcel contain at least
-    one centroid.  Returns (fraction, occupied_count, valid_count).
-    """
+def _compute_grid_fill(centroids: list, parcel: _Poly) -> tuple[float, int, int]:
+    """Fraction of 3×3 grid cells containing ≥1 centroid."""
     minx, miny, maxx, maxy = parcel.bounds
     dx = (maxx - minx) / 3
     dy = (maxy - miny) / 3
@@ -108,23 +115,137 @@ def _compute_grid_fill(centroids: list,
     return len(occupied) / valid, len(occupied), valid
 
 
-# ── Component scorers ─────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# Compliance gate  (hard pass/fail, separate from quality)
+# ─────────────────────────────────────────────────────────────────────────────
 
-def _c1_shelter_distribution(shelters: list, parcel: _Poly,
-                              sh_gf: float, sh_occ: int,
-                              sh_valid: int) -> tuple[int, str]:
-    """Are shelters spread across the buildable area?"""
+def compliance_gate(layout: dict, site: dict, requirements: dict) -> dict:
+    """
+    Hard constraint gate.  Each check is independent pass/fail.
+    A layout that fails any check is flagged non-compliant regardless of
+    quality score.  Thresholds match Sphere / UNHCR standards.
+
+    Checks performed:
+      1. All required facility counts present
+      2. No footprint overlaps (>1 m² tolerance)
+      3. WS3: ≥95 % of shelters within 500 m of a water point
+      4. SA3: ≥80 % of shelters within 50 m of a latrine
+      5. ED3: ≥95 % of shelters within 1 km of a school (if schools required)
+      6. SH6: shelter spacing ≥2 m (spot-check first 8)
+      7. SA4: latrines ≥6 m from shelters (centroid proxy, first 15/8)
+      8. PA3: road network fully connected
+    """
+    shelter_result = layout.get("shelter_result", {})
+    facilities     = layout.get("facilities", {})
+    roads          = layout.get("roads", {})
+    shelters       = shelter_result.get("shelters", [])
+    fac_status     = facilities.get("status", {})
+    checks: list[dict] = []
+
+    def _check(name: str, passed: bool, detail: str) -> None:
+        checks.append({"name": name, "pass": passed, "detail": detail})
+
+    # ── 1. Facility counts ────────────────────────────────────────────────────
+    for req_key, fac_key in _REQ_TO_FAC.items():
+        req_n = requirements.get(req_key, {}).get("count", 0)
+        if req_n == 0:
+            continue
+        placed = fac_status.get(fac_key, {}).get("placed", 0)
+        _check(f"Count: {req_key.replace('_', ' ')}",
+               placed >= req_n, f"{placed}/{req_n} placed")
+
+    sh_req = shelter_result.get("required", 0)
+    if sh_req > 0:
+        sh_placed = shelter_result.get("placed", 0)
+        _check("Count: shelter units", sh_placed >= sh_req,
+               f"{sh_placed}/{sh_req} placed")
+
+    # ── 2. No footprint overlaps (>1 m² tolerance) ───────────────────────────
+    polys = _all_polys(shelters, facilities)
+    if len(polys) >= 2:
+        total_area = sum(p.area for p in polys)
+        union_area = unary_union(polys).area
+        overlap    = max(0.0, total_area - union_area)
+        _check("No footprint overlaps", overlap <= 1.0,
+               f"{overlap:.1f} m² total overlap")
+
+    # ── 3. WS3: ≥95 % of shelters within 500 m of a water point ─────────────
+    if shelters:
+        wp = [_centroid(i["corners_m"]) for i in facilities.get("water_points", [])]
+        if wp:
+            sh_cens = [_centroid(s["corners_m"]) for s in shelters]
+            n_cov   = sum(1 for s in sh_cens if any(_dist(s, w) <= 500 for w in wp))
+            frac    = n_cov / len(shelters)
+            _check("WS3: water within 500 m", frac >= 0.95,
+                   f"{n_cov}/{len(shelters)} ({100*frac:.0f}%)")
+        else:
+            _check("WS3: water within 500 m", False, "no water points placed")
+
+    # ── 4. SA3: ≥80 % of shelters within 50 m of a latrine ──────────────────
+    if shelters:
+        lt = [_centroid(i["corners_m"]) for i in facilities.get("toilets", [])]
+        if lt:
+            sh_cens = [_centroid(s["corners_m"]) for s in shelters]
+            n_cov   = sum(1 for s in sh_cens if any(_dist(s, l) <= 50 for l in lt))
+            frac    = n_cov / len(shelters)
+            _check("SA3: sanitation within 50 m", frac >= 0.80,
+                   f"{n_cov}/{len(shelters)} ({100*frac:.0f}%)")
+        else:
+            _check("SA3: sanitation within 50 m", False, "no latrines placed")
+
+    # ── 5. ED3: ≥95 % of shelters within 1 km of a school ───────────────────
+    sc_req = requirements.get("schools", {}).get("count", 0)
+    if sc_req > 0 and shelters:
+        sc = [_centroid(i["corners_m"]) for i in facilities.get("schools", [])]
+        if sc:
+            sh_cens = [_centroid(s["corners_m"]) for s in shelters]
+            n_cov   = sum(1 for s in sh_cens if any(_dist(s, c) <= 1000 for c in sc))
+            frac    = n_cov / len(shelters)
+            _check("ED3: school within 1 km", frac >= 0.95,
+                   f"{n_cov}/{len(shelters)} ({100*frac:.0f}%)")
+        else:
+            _check("ED3: school within 1 km", False, "no schools placed")
+
+    # ── 6. SH6: shelter spacing ≥2 m (spot-check first 8) ───────────────────
+    if len(shelters) >= 2:
+        sample = [_Poly(s["corners_m"]) for s in shelters[:8]]
+        ok     = all(sample[i].distance(sample[j]) >= 1.9
+                     for i in range(len(sample))
+                     for j in range(i + 1, len(sample)))
+        _check("SH6: shelter spacing ≥2 m", ok, "spot-checked first 8 shelters")
+
+    # ── 7. SA4: latrines ≥6 m from shelters (centroid proxy) ────────────────
+    latrines = facilities.get("toilets", [])
+    if shelters and latrines:
+        sh_cens = [_centroid(s["corners_m"]) for s in shelters[:15]]
+        lt_cens = [_centroid(l["corners_m"]) for l in latrines[:8]]
+        min_d   = min(_dist(sc, lc) for sc in sh_cens for lc in lt_cens)
+        _check("SA4: latrines ≥6 m from shelters", min_d >= 6.0,
+               f"nearest centroid pair: {min_d:.1f} m")
+
+    # ── 8. PA3: road network fully connected ─────────────────────────────────
+    if roads:
+        connected = roads.get("connected", False)
+        stranded  = roads.get("stranded", [])
+        _check("PA3: road network connected", connected,
+               "fully connected" if connected else f"{len(stranded)} stranded node(s)")
+
+    return {"pass": all(c["pass"] for c in checks), "checks": checks}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Quality score components  (9 components, constraint_compliance removed)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _c1_shelter_distribution(shelters, parcel, sh_gf, sh_occ, sh_valid):
     if not shelters:
         return 0, "No shelters placed"
-    pts = round(sh_gf * 10)
+    pts   = round(sh_gf * 10)
     label = "good" if sh_gf >= 0.7 else "moderate" if sh_gf >= 0.4 else "poor"
-    return pts, (
-        f"Shelters in {sh_occ}/{sh_valid} grid zones — {label} spread across parcel"
-    )
+    return pts, f"Shelters in {sh_occ}/{sh_valid} grid zones — {label} spread"
 
 
-def _c2_water_coverage(shelters: list, water_pts: list) -> tuple[int, str]:
-    """Fraction of shelters within 500 m of a water point (WS3)."""
+def _c2_water_coverage(shelters, water_pts):
     if not shelters:
         return 10, "No shelters to cover (WS3 n/a)"
     if not water_pts:
@@ -135,22 +256,19 @@ def _c2_water_coverage(shelters: list, water_pts: list) -> tuple[int, str]:
         if any(_dist(_centroid(s["corners_m"]), wc) <= 500 for wc in wp_cens)
     )
     frac = covered / len(shelters)
-    pts = round(frac * 10)
-    return pts, (
+    return round(frac * 10), (
         f"{covered}/{len(shelters)} shelters within 500 m of a water point "
-        f"({100 * frac:.0f}% — WS3)"
+        f"({100*frac:.0f}% — WS3)"
     )
 
 
-def _c3_sanitation_distribution(shelters: list, latrines: list,
-                                 parcel: _Poly) -> tuple[int, str]:
-    """Fraction within 50 m of latrines; spread bonus (SA3/SA9)."""
+def _c3_sanitation_distribution(shelters, latrines, parcel):
     if not shelters:
         return 10, "No shelters to evaluate (SA3 n/a)"
     if not latrines:
         return 0, "No latrine blocks placed — SA3 violated"
     lat_cens = [_centroid(l["corners_m"]) for l in latrines]
-    covered = sum(
+    covered  = sum(
         1 for s in shelters
         if any(_dist(_centroid(s["corners_m"]), lc) <= 50 for lc in lat_cens)
     )
@@ -159,25 +277,23 @@ def _c3_sanitation_distribution(shelters: list, latrines: list,
         xs = [p[0] for p in lat_cens]
         ys = [p[1] for p in lat_cens]
         mx, my = sum(xs) / len(xs), sum(ys) / len(ys)
-        std = sqrt(sum((x - mx) ** 2 + (y - my) ** 2 for x, y in lat_cens) / len(lat_cens))
+        std    = sqrt(sum((x - mx) ** 2 + (y - my) ** 2
+                          for x, y in lat_cens) / len(lat_cens))
         bx0, by0, bx1, by1 = parcel.bounds
-        diag = sqrt((bx1 - bx0) ** 2 + (by1 - by0) ** 2)
+        diag  = sqrt((bx1 - bx0) ** 2 + (by1 - by0) ** 2)
         spread = min(1.0, std / max(1.0, diag * 0.20))
     else:
         spread = 0.2
     combined = 0.7 * frac_cov + 0.3 * spread
-    pts = round(combined * 10)
-    spread_label = ("well spread" if spread >= 0.6
-                    else "loosely spread" if spread >= 0.3 else "clustered")
-    return pts, (
+    label    = ("well spread" if spread >= 0.6
+                else "loosely spread" if spread >= 0.3 else "clustered")
+    return round(combined * 10), (
         f"{covered}/{len(shelters)} shelters within 50 m of latrines; "
-        f"blocks {spread_label} (SA3/SA9)"
+        f"blocks {label} (SA3/SA9)"
     )
 
 
-def _c4_school_accessibility(shelters: list, schools: list,
-                               requirements: dict) -> tuple[int, str]:
-    """Fraction of shelters within 1 km of a school (ED3)."""
+def _c4_school_accessibility(shelters, schools, requirements):
     sc_req = requirements.get("schools", {}).get("count", 0)
     if sc_req == 0:
         return 10, "No schools required — ED3 n/a"
@@ -191,113 +307,42 @@ def _c4_school_accessibility(shelters: list, schools: list,
         if any(_dist(_centroid(sh["corners_m"]), sc) <= 1000 for sc in sc_cens)
     )
     frac = covered / len(shelters)
-    pts = round(frac * 10)
-    return pts, (
+    return round(frac * 10), (
         f"{covered}/{len(shelters)} shelters within 1 km of a school "
-        f"({100 * frac:.0f}% — ED3)"
+        f"({100*frac:.0f}% — ED3)"
     )
 
 
-def _c5_road_connectivity(roads: dict) -> tuple[int, str]:
-    """Single connected road graph reaching all facilities and shelter bands (PA3/PA4)."""
+def _c5_road_connectivity(roads):
     if not roads:
         return 5, "Road data unavailable — scored conservatively"
     if roads.get("connected", False):
         return 10, "Road network fully connected — PA3/PA4 satisfied"
     stranded = roads.get("stranded", [])
-    n = len(stranded)
+    n   = len(stranded)
     pts = max(0, 8 - min(8, n * 2))
-    sample = ", ".join(stranded[:3]) + (f" (+{n - 3} more)" if n > 3 else "")
-    return pts, f"Network not fully connected; {n} element(s) stranded: {sample}"
+    sample = ", ".join(stranded[:3]) + (f" (+{n-3} more)" if n > 3 else "")
+    return pts, f"Network not fully connected; {n} stranded: {sample}"
 
 
-def _c6_constraint_compliance(shelter_result: dict,
-                               facilities: dict,
-                               requirements: dict) -> tuple[int, str]:
-    """Hard count checks and key spacing rules (SH6, SA4)."""
-    checks_pass = 0
-    checks_total = 0
-    fac_status = facilities.get("status", {})
-
-    for req_key, fac_key in _REQ_TO_FAC.items():
-        req_count = requirements.get(req_key, {}).get("count", 0)
-        if req_count == 0:
-            continue
-        checks_total += 1
-        if fac_status.get(fac_key, {}).get("placed", 0) >= req_count:
-            checks_pass += 1
-
-    sh_req = shelter_result.get("required", 0)
-    if sh_req > 0:
-        checks_total += 1
-        if shelter_result.get("placed", 0) >= sh_req:
-            checks_pass += 1
-
-    # SH6: shelter spacing ≥ 2 m — spot-check first 8 shelters
-    sh_list = shelter_result.get("shelters", [])
-    if len(sh_list) >= 2:
-        checks_total += 1
-        sample = [_Poly(s["corners_m"]) for s in sh_list[:8]]
-        ok = all(
-            sample[i].distance(sample[j]) >= 1.9
-            for i in range(len(sample))
-            for j in range(i + 1, len(sample))
-        )
-        if ok:
-            checks_pass += 1
-
-    # SA4: latrines ≥ 6 m from shelters — centroid proxy (cen-cen ≥ 10 m)
-    latrines = facilities.get("toilets", [])
-    if sh_list and latrines:
-        checks_total += 1
-        sh_cens = [_centroid(s["corners_m"]) for s in sh_list[:15]]
-        lt_cens = [_centroid(l["corners_m"]) for l in latrines[:8]]
-        min_d = min(_dist(sc, lc) for sc in sh_cens for lc in lt_cens)
-        if min_d >= 10.0:   # centroid gap ≥ 10 m ≈ edge gap ≥ 6 m for typical sizes
-            checks_pass += 1
-
-    if checks_total == 0:
-        return 5, "Insufficient data to evaluate constraints"
-    frac = checks_pass / checks_total
-    pts = round(frac * 10)
-    return pts, (
-        f"{checks_pass}/{checks_total} checks pass "
-        f"(facility counts, SH6 shelter spacing, SA4 latrine clearance)"
-    )
-
-
-def _c7_site_utilisation(shelters: list, facilities: dict,
-                          siting_gf: float, siting_occ: int,
-                          sh_valid: int) -> tuple[int, str]:
-    """How evenly shelters and deliberately-placed facilities fill the parcel.
-
-    Uses the same 3×3 grid as shelter_distribution, counting zones that
-    contain at least one shelter centroid or a deliberately-sited facility
-    centroid (health post, food, community space, admin, worship).
-    Grid-spread elements (latrines, water points, schools) are excluded so
-    they cannot artificially fill zones that are genuinely empty (SH10).
-    """
+def _c6_site_utilisation(shelters, facilities, siting_gf, siting_occ, sh_valid):
     if not shelters and not any(facilities.get(k) for k in _SITING_KEYS):
         return 0, "No elements placed — parcel entirely unused"
-    pts = round(siting_gf * 10)
+    pts   = round(siting_gf * 10)
     label = ("good" if siting_gf >= 0.7
              else "moderate — several zones empty" if siting_gf >= 0.4
              else "poor — most of parcel unused")
-    return pts, (
-        f"{siting_occ}/{sh_valid} zones contain shelters/key facilities — "
-        f"{label} (SH10)"
-    )
+    return pts, f"{siting_occ}/{sh_valid} zones contain shelters/key facilities — {label} (SH10)"
 
 
-def _c8_entrance_quality(site: dict, roads: dict) -> tuple[int, str]:
-    """Entrance on boundary near external road, connected to main road."""
-    pts = 0
+def _c7_entrance_quality(site, roads):
+    pts   = 0
     notes: list[str] = []
     if site.get("roads_m"):
         pts += 3
         notes.append("external roads present near entrance")
     else:
-        notes.append("no external roads detected in site data")
+        notes.append("no external roads detected")
     if roads.get("main_road"):
         pts += 4
         notes.append("main road (PA1) links entrance into camp")
@@ -311,98 +356,74 @@ def _c8_entrance_quality(site: dict, roads: dict) -> tuple[int, str]:
     return pts, "; ".join(notes)
 
 
-def _c9_overlap_avoidance(shelters: list, facilities: dict) -> tuple[int, str]:
-    """Penalise facilities/shelters whose footprints overlap."""
+def _c8_overlap_avoidance(shelters, facilities):
     polys = _all_polys(shelters, facilities)
     if len(polys) < 2:
         return 10, "Fewer than 2 elements — no overlaps possible"
-    total_area = sum(p.area for p in polys)
+    total_area  = sum(p.area for p in polys)
     if total_area < 0.01:
         return 10, "Negligible footprints — no overlaps"
-    union_area = unary_union(polys).area
+    union_area  = unary_union(polys).area
     overlap_area = max(0.0, total_area - union_area)
     if overlap_area < 0.5:
-        return 10, "No significant footprint overlaps detected (< 0.5 m²)"
+        return 10, "No significant footprint overlaps (< 0.5 m²)"
     overlap_frac = overlap_area / total_area
-    # 5 % overlap → 0 pts; linear (stricter than 10 % to catch clustered facilities)
     pts = max(0, round((1.0 - overlap_frac / 0.05) * 10))
     return pts, (
-        f"{overlap_area:.1f} m² overlapping area "
-        f"({100 * overlap_frac:.1f}% of total footprint)"
+        f"{overlap_area:.1f} m² overlapping "
+        f"({100*overlap_frac:.1f}% of total footprint)"
     )
 
 
-def _c10_expansion_buffer(shelters: list, facilities: dict,
-                           parcel: _Poly, sh_gf: float) -> tuple[int, str]:
-    """Reward expansion space only when the camp is already well-spread (SH10).
-
-    A large empty area from poor placement is NOT a buffer — it is the same
-    wasted space that shelter_distribution and site_utilisation already
-    penalise.  The score scales with how well shelters fill the parcel first,
-    then with how much contiguous free area remains.
-    """
+def _c9_expansion_buffer(shelters, facilities, parcel, sh_gf):
     polys = _all_polys(shelters, facilities)
     if not polys:
-        return 5, "No elements placed — cannot evaluate (scored conservatively)"
-
-    used = unary_union(polys).buffer(3.0)
-    leftover = parcel.difference(used)
+        return 5, "No elements placed — scored conservatively"
+    used      = unary_union(polys).buffer(3.0)
+    leftover  = parcel.difference(used)
     if leftover.is_empty:
-        return 0, "No free space remaining — no expansion possible"
-
-    largest = (
-        max(leftover.geoms, key=lambda g: g.area)
-        if hasattr(leftover, "geoms") else leftover
-    )
+        return 0, "No free space remaining"
+    largest = (max(leftover.geoms, key=lambda g: g.area)
+               if hasattr(leftover, "geoms") else leftover)
     leftover_frac = largest.area / parcel.area
-
     if sh_gf < 0.40:
-        # Shelters barely spread — emptiness = incomplete placement, not reserve
-        pts = max(0, round(sh_gf * 5))   # 0–2 pts
-        label = (
-            f"shelters occupy only {round(sh_gf * 9)}/9 zones; "
-            f"free space is unplanned emptiness, not a buffer"
-        )
+        pts   = max(0, round(sh_gf * 5))
+        label = "emptiness from incomplete placement, not a usable buffer"
     elif sh_gf < 0.70:
-        # Partial spread — give limited credit, weighted toward camp quality
-        quality_pts   = round((sh_gf - 0.40) / 0.30 * 6)          # 0–6
-        leftover_pts  = round(min(leftover_frac, 0.20) / 0.20 * 2) # 0–2
-        pts = quality_pts + leftover_pts                            # 0–8
-        label = "partial spread — free area is partly unplanned"
+        q_pts = round((sh_gf - 0.40) / 0.30 * 6)
+        l_pts = round(min(leftover_frac, 0.20) / 0.20 * 2)
+        pts   = q_pts + l_pts
+        label = "partial spread — free area partly unplanned"
     else:
-        # Camp well-spread: score based on leftover size
-        leftover_pts = round(min(leftover_frac, 0.30) / 0.30 * 10)
-        pts = max(5, leftover_pts)
+        l_pts = round(min(leftover_frac, 0.30) / 0.30 * 10)
+        pts   = max(5, l_pts)
         label = ("good planned expansion reserve" if leftover_frac >= 0.15
                  else "limited expansion space — camp is dense")
-
     return pts, (
         f"Largest free area: {largest.area:.0f} m² "
-        f"({100 * leftover_frac:.0f}% of parcel), "
-        f"{round(sh_gf * 9)}/9 shelter zones occupied — {label} (SH10)"
+        f"({100*leftover_frac:.0f}% of parcel) — {label} (SH10)"
     )
 
 
-# ── Public API ────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# Public scoring entry point
+# ─────────────────────────────────────────────────────────────────────────────
 
 def score_layout(layout: dict, site: dict, requirements: dict) -> dict:
     """
-    Score a camp layout on ten 0–10 components, returning a 0–100 total.
-
-    Parameters
-    ----------
-    layout : {"shelter_result": ..., "facilities": ..., "roads": ...}
-    site   : site dict with parcel_polygon_m, roads_m, origin_lat, origin_lon
-    requirements : output of compute_requirements()
+    Score a camp layout.
 
     Returns
     -------
-    {"total": int, "components": [{"name", "points", "max", "weight",
-    "explanation"}, ...]}
+    {
+      "gate":       compliance_gate result (pass/fail + check list),
+      "quality":    {"total": int, "components": [...]},
+      "total":      int   # alias for quality["total"] — backward compat
+      "components": list  # alias for quality["components"] — backward compat
+    }
 
-    Scoring weights (see _WEIGHTS): shelter_distribution ×4,
-    site_utilisation ×4, overlap_avoidance ×2, all others ×1.
-    Total = round(weighted_sum / 170 * 100).
+    Quality is 9 weighted components (0–100, max weighted = 160).
+    constraint_compliance has been removed from quality; it is now the gate.
     """
     shelter_result = layout.get("shelter_result", {})
     facilities     = layout.get("facilities", {})
@@ -410,7 +431,7 @@ def score_layout(layout: dict, site: dict, requirements: dict) -> dict:
     shelters       = shelter_result.get("shelters", [])
     parcel         = _Poly(site["parcel_polygon_m"])
 
-    # ── Pre-compute grid fills used by multiple components ────────────────────
+    # Pre-compute grid fills shared by multiple components
     sh_cens = [_centroid(s["corners_m"]) for s in shelters]
     siting_cens = list(sh_cens)
     for k in _SITING_KEYS:
@@ -420,10 +441,8 @@ def score_layout(layout: dict, site: dict, requirements: dict) -> dict:
             except Exception:
                 pass
 
-    # Shelter-only grid fill → drives shelter_distribution and expansion_buffer
-    sh_gf, sh_occ, sh_valid = _compute_grid_fill(sh_cens, parcel)
-    # Shelter + deliberately-sited facilities → drives site_utilisation
-    sit_gf, sit_occ, _ = _compute_grid_fill(siting_cens, parcel)
+    sh_gf,  sh_occ,  sh_valid = _compute_grid_fill(sh_cens, parcel)
+    sit_gf, sit_occ, _        = _compute_grid_fill(siting_cens, parcel)
 
     scorers = [
         ("shelter_distribution",    lambda: _c1_shelter_distribution(
@@ -435,24 +454,22 @@ def score_layout(layout: dict, site: dict, requirements: dict) -> dict:
         ("school_accessibility",    lambda: _c4_school_accessibility(
                                         shelters, facilities.get("schools", []), requirements)),
         ("road_connectivity",       lambda: _c5_road_connectivity(roads)),
-        ("constraint_compliance",   lambda: _c6_constraint_compliance(
-                                        shelter_result, facilities, requirements)),
-        ("site_utilisation",        lambda: _c7_site_utilisation(
+        ("site_utilisation",        lambda: _c6_site_utilisation(
                                         shelters, facilities, sit_gf, sit_occ, sh_valid)),
-        ("entrance_quality",        lambda: _c8_entrance_quality(site, roads)),
-        ("overlap_avoidance",       lambda: _c9_overlap_avoidance(shelters, facilities)),
-        ("expansion_buffer",        lambda: _c10_expansion_buffer(
+        ("entrance_quality",        lambda: _c7_entrance_quality(site, roads)),
+        ("overlap_avoidance",       lambda: _c8_overlap_avoidance(shelters, facilities)),
+        ("expansion_buffer",        lambda: _c9_expansion_buffer(
                                         shelters, facilities, parcel, sh_gf)),
     ]
 
-    components = []
+    components   = []
     weighted_sum = 0
-    max_weighted = sum(_WEIGHTS.values()) * 10  # = 170
+    max_weighted = sum(_WEIGHTS.values()) * 10  # = 160
 
     for name, fn in scorers:
         pts, expl = fn()
         pts = max(0, min(10, int(round(pts))))
-        w = _WEIGHTS[name]
+        w   = _WEIGHTS[name]
         weighted_sum += pts * w
         components.append({
             "name":        name,
@@ -462,5 +479,14 @@ def score_layout(layout: dict, site: dict, requirements: dict) -> dict:
             "explanation": expl,
         })
 
-    total = round(weighted_sum / max_weighted * 100)
-    return {"total": total, "components": components}
+    total   = round(weighted_sum / max_weighted * 100)
+    gate    = compliance_gate(layout, site, requirements)
+    quality = {"total": total, "components": components}
+
+    return {
+        "gate":       gate,
+        "quality":    quality,
+        # Backward-compatible aliases
+        "total":      total,
+        "components": components,
+    }
