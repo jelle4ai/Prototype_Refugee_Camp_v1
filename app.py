@@ -199,13 +199,26 @@ def _layout_map(site: dict,
 
 def _run_placement(site: dict, reqs: dict) -> tuple[dict, dict, dict]:
     """
-    Place facilities (CS5 order) then shelters, returning
-    (shelter_result, facilities, roads).  Caches result in session state.
+    Place facilities (CS5 order) then shelters (block/community hierarchy),
+    merge community water/sanitation back into facilities, then build roads.
+    Returns (shelter_result, facilities, roads).
     """
-    facilities     = place_all_facilities(site, reqs)
-    occupied_geo   = facilities.pop("_occupied_geo", None)
+    facilities   = place_all_facilities(site, reqs)
+    occupied_geo = facilities.pop("_occupied_geo", None)
     shelter_result = place_shelters(site, reqs, occupied_geo=occupied_geo)
-    roads          = place_roads(site, shelter_result, facilities)
+
+    # Merge community-placed facilities into the main facilities dict so that
+    # the compliance gate and road builder see them. Must happen before roads.
+    facilities["water_points"].extend(shelter_result.pop("community_water", []))
+    facilities["toilets"].extend(shelter_result.pop("community_latrines", []))
+    facilities["washing_facilities"].extend(shelter_result.pop("community_washing", []))
+    for fac_key in ("water_points", "toilets", "washing_facilities"):
+        facilities["status"][fac_key] = {
+            "placed":   len(facilities[fac_key]),
+            "required": facilities["status"].get(fac_key, {}).get("required", 0),
+        }
+
+    roads = place_roads(site, shelter_result, facilities)
     return shelter_result, facilities, roads
 
 

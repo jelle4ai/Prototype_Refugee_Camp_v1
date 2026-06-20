@@ -22,7 +22,9 @@ place_roads(site, shelter_result, facilities) -> dict
   Road network — unchanged from original.
 """
 from math import ceil, sqrt, pi, cos as _cos, sin as _sin, radians as _rad
-from shapely.geometry import Polygon as ShapelyPolygon, LineString as _ShapelyLine
+from shapely.geometry import (Polygon as ShapelyPolygon,
+                               LineString as _ShapelyLine,
+                               Point as _ShapelyPoint)
 from shapely.ops import unary_union
 import networkx as _nx
 
@@ -137,6 +139,298 @@ def _grid_place(parcel: ShapelyPolygon,
     return placed
 
 
+def _place_community(
+    parcel: ShapelyPolygon,
+    cx: float,
+    cy: float,
+    n_families: int,
+    shelter_w: float,
+    shelter_h: float,
+    occ,
+) -> dict | None:
+    """
+    Place one community cluster of up to n_families shelter units arranged in
+    an elliptical ring around a shared open space, with embedded latrines,
+    a washing unit, and a water tap.
+
+    Rules enforced
+    --------------
+    SH6   ≥ 2 m between shelter units (intra-clearance in occ)
+    SH11  shelters in a ring — not military rows
+    SH12  ring orientation keeps entrances facing the shared open space
+    SA1   ceil(n_families × 5 / 20) latrine stalls  (≤ 20 pp per stall)
+    SA2   ceil(n_families × 5 / 100) washing units  (1 per 100 pp)
+    SA3   latrines within community; all shelter–latrine distances ≤ 50 m
+    SA4   6 m shelter buffer applied before latrine search
+    WS2   one water tap placed inside the shared open space
+    WS3   all community shelters ≤ 200 m from tap (guaranteed by construction)
+    WS5   tap ≥ 30 m from every placed latrine centroid
+
+    Returns a dict on success:
+        shelters       – list of {"corners_m": [...]}
+        water_taps     – list of {"corners_m": [...]}  (circle polygon)
+        latrines       – list of {"corners_m": [...]}
+        washing        – list of {"corners_m": [...]}
+        community_poly – ShapelyPolygon convex hull of all placed elements
+        occ            – updated shared exclusion geometry
+
+    Returns None if the community cannot be placed (open space outside parcel,
+    zero shelters fit, or WS5 cannot be satisfied — caller should try a
+    different centre point).
+    """
+    _AVG_PP   = 5          # Appendix F: ~5 persons per family
+    _OPEN_W   = 20.0       # shared open space width  (m) — wide enough to read as open
+    _OPEN_H   = 16.0       # shared open space height (m)
+    _WP_R     = 3.0        # water-tap circle radius  (m)
+    _LT_W     = 4.0        # latrine stall width  (m)
+    _LT_H     = 3.0        # latrine stall height (m)
+    _WSH_W    = 4.0        # washing unit width  (m)
+    _WSH_H    = 3.0        # washing unit height (m)
+    _SH_CLEAR = 2.01       # SH6: > 2 m gap; 0.01 sentinel avoids edge ambiguity
+    _OPEN_CLR = 4.0        # clear margin beyond open space before shelter ring (SH12)
+    _LT_SOUTH = 34.0       # nominal distance south of centre for latrine block
+    _WS5_MIN  = 30.0       # WS5: tap–latrine minimum separation (m)
+
+    def _cen(corners):
+        n = len(corners)
+        return (sum(p[0] for p in corners) / n,
+                sum(p[1] for p in corners) / n)
+
+    def _d2d(a, b):
+        return sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2)
+
+    # ── 0. Shared open space ─────────────────────────────────────────────────
+    open_corners = _rect(cx, cy, _OPEN_W, _OPEN_H)
+    open_poly    = ShapelyPolygon(open_corners)
+    if not parcel.contains(open_poly):
+        return None
+    # Add open space (+ clearance) to occ so shelters cannot enter it.
+    # The tap is placed inside the open space and intentionally bypasses this check.
+    occ = _union_add(occ, open_poly, clearance=_OPEN_CLR)
+
+    # ── 1. Shelter ring (SH11: elliptical ring, not military rows) ───────────
+    # Minimum radii to clear: open space half-extent + margin + SH6 gap
+    # + half shelter dimension.  With _OPEN_CLR=4 m the inner ring sits well
+    # clear of the open space so it stays visibly open (SH11, SH12).
+    min_rx = _OPEN_W / 2 + _OPEN_CLR + _SH_CLEAR + shelter_w / 2   # ≈ 18.51 m
+    min_ry = _OPEN_H / 2 + _OPEN_CLR + _SH_CLEAR + shelter_h / 2   # ≈ 15.76 m
+
+    candidates: list[tuple[float, float]] = []
+    for ring in range(1, 5):
+        rx     = min_rx + (ring - 1) * (shelter_w + _SH_CLEAR)
+        ry     = min_ry + (ring - 1) * (shelter_h + _SH_CLEAR)
+        n_pts  = 8 + (ring - 1) * 4
+        phase  = ring * pi / n_pts          # stagger successive rings
+        for i in range(n_pts):
+            angle = 2 * pi * i / n_pts + phase
+            candidates.append((cx + rx * _cos(angle),
+                               cy + ry * _sin(angle)))
+
+    shelters: list[dict] = []
+    local_occ = occ
+    for scx, scy in candidates:
+        if len(shelters) >= n_families:
+            break
+        corners = _nudge(parcel, scx, scy, shelter_w, shelter_h,
+                         step=1.5, max_rings=4, occupied=local_occ)
+        if corners is None:
+            continue
+        shelters.append({"corners_m": corners})
+        local_occ = _union_add(local_occ, ShapelyPolygon(corners),
+                               clearance=_SH_CLEAR)   # SH6
+    if not shelters:
+        return None
+    occ = local_occ
+
+    # ── 2. Latrines (SA1: ≤ 20 pp/stall; SA4: ≥ 6 m from all shelters) ─────
+    n_latrines = ceil(n_families * _AVG_PP / 20)
+    sh_union   = unary_union([ShapelyPolygon(s["corners_m"]) for s in shelters])
+    # Build a latrine-search exclusion: main occ + 6 m shelter buffer (SA4).
+    # This search zone is local; only placed latrine footprints go back into occ.
+    lt_search  = _union_add(occ, sh_union, clearance=6.0)
+
+    # Split latrines between south and north poles of the cluster (SA9: distributed
+    # through residential zones).  This keeps all shelters within SA3's 50 m limit
+    # even when the ring extends into a second row of candidates.
+    n_south = (n_latrines + 1) // 2    # ceiling half goes south
+    n_north = n_latrines - n_south      # remainder goes north
+
+    latrines: list[dict] = []
+    lt_local = lt_search
+    for side_n, side_cy in ((n_south, cy - _LT_SOUTH), (n_north, cy + _LT_SOUTH)):
+        for i in range(side_n):
+            lt_cx = cx + (i - (side_n - 1) / 2) * (_LT_W + 1.0)
+            corners = _nudge(parcel, lt_cx, side_cy, _LT_W, _LT_H,
+                             step=3.0, max_rings=12, occupied=lt_local)
+            if corners is None:
+                continue
+            latrines.append({"corners_m": corners})
+            lt_local = _union_add(lt_local, ShapelyPolygon(corners), clearance=0.5)
+    # Add only latrine footprints to main occ (not the 6 m search buffer)
+    for lt in latrines:
+        occ = _union_add(occ, ShapelyPolygon(lt["corners_m"]), clearance=0.5)
+
+    # ── 3. Water tap (WS2: one per community; WS5: ≥ 30 m from latrines) ────
+    # Tap lives inside the shared open space (centre of cluster).  Latrines are
+    # _LT_SOUTH metres north and south, so WS5 is satisfied by construction.
+    lt_cens = [_cen(l["corners_m"]) for l in latrines]
+
+    tap_candidates = [
+        (cx, cy),                              # open space centre
+        (cx, cy + _OPEN_H / 2 - _WP_R),       # north edge
+        (cx - _OPEN_W / 2 + _WP_R, cy),       # west edge
+        (cx + _OPEN_W / 2 - _WP_R, cy),       # east edge
+    ]
+    tap_placed = None
+    for tc in tap_candidates:
+        if lt_cens and min(_d2d(tc, lc) for lc in lt_cens) < _WS5_MIN:
+            continue   # WS5 not met at this position
+        tap_corners = _circle(tc[0], tc[1], _WP_R)
+        tap_poly    = ShapelyPolygon(tap_corners)
+        if not parcel.contains(tap_poly):
+            continue
+        # Tap intentionally placed inside the reserved open space — occ
+        # intersection check skipped here; tap is added to occ after.
+        tap_placed = {"corners_m": tap_corners}
+        occ = _union_add(occ, tap_poly, clearance=0.5)
+        break
+
+    if tap_placed is None:
+        return None    # WS5 unresolvable — community placement fails (WS2)
+
+    # ── 4. Washing facility (SA2: 1 per 100 pp) ─────────────────────────────
+    n_washing   = max(1, ceil(n_families * _AVG_PP / 100))
+    washing: list[dict] = []
+    ref = latrines[0]["corners_m"] if latrines else _rect(cx, cy - _LT_SOUTH, _LT_W, _LT_H)
+    rcx, rcy = _cen(ref)
+    for _ in range(n_washing):
+        for ddx, ddy in ((_LT_W + 1.0, 0), (0, _LT_H + 1.0),
+                          (-(_LT_W + 1.0), 0)):
+            wc = _nudge(parcel, rcx + ddx, rcy + ddy, _WSH_W, _WSH_H,
+                        step=1.5, max_rings=4, occupied=occ)
+            if wc:
+                washing.append({"corners_m": wc})
+                occ = _union_add(occ, ShapelyPolygon(wc), clearance=0.5)
+                break
+
+    # ── 5. Community convex hull (for block-level management and roads) ───────
+    hull_polys = [open_poly] + [ShapelyPolygon(s["corners_m"]) for s in shelters]
+    if latrines:
+        hull_polys += [ShapelyPolygon(l["corners_m"]) for l in latrines]
+    community_poly = unary_union(hull_polys).convex_hull
+
+    return {
+        "shelters":       shelters,
+        "water_taps":     [tap_placed],
+        "latrines":       latrines,
+        "washing":        washing,
+        "open_corners":   open_corners,   # for visualisation / block management
+        "community_poly": community_poly,
+        "occ":            occ,
+    }
+
+
+def _place_block(
+    parcel: ShapelyPolygon,
+    block_cx: float,
+    block_cy: float,
+    n_communities: int,
+    shelter_w: float,
+    shelter_h: float,
+    occ,
+) -> dict | None:
+    """
+    Place one block of up to n_communities community clusters in a compact grid.
+
+    Rules enforced / tracked
+    ------------------------
+    SH7   built_width returned so the caller can insert a 30 m firebreak gap
+          whenever a new block would push the continuous built band past 300 m.
+          A single block is well below 300 m, so no internal firebreak is needed.
+    SH14  block_poly returned so caller can align firebreak to block boundary.
+    PA9   one side of the grid left accessible; road connection managed by
+          place_roads in the existing road layer (no roads built here).
+
+    Community pitches
+    -----------------
+    _COMM_PITCH_X / _Y set the centre-to-centre spacing.  Values are generous
+    enough that each community's shelter ring, latrines, and clearance occ do
+    not bleed into the adjacent community's reserved area.
+
+    Returns a dict on success:
+        shelters     – flat list of all shelter {"corners_m": [...]}
+        water_taps   – flat list of all community taps
+        latrines     – flat list of all community latrines
+        washing      – flat list of all community washing units
+        communities  – list of per-community result dicts (include community_poly)
+        block_poly   – ShapelyPolygon convex hull of the whole block (SH14)
+        built_width  – E-W span in metres  (SH7: caller checks vs 300 m limit)
+        built_height – N-S span in metres
+        placed       – number of communities actually placed
+        occ          – updated shared exclusion geometry
+
+    Returns None if no community could be placed at all.
+    """
+    _COMM_PITCH_X = 62.0   # community centre-to-centre E-W (m)
+    _COMM_PITCH_Y = 82.0   # community centre-to-centre N-S (m)
+
+    n_cols = max(1, round(sqrt(n_communities)))
+    n_rows = ceil(n_communities / n_cols)
+
+    # Build candidate community centres in row-major order (south → north,
+    # west → east) so the southern row is always populated first, keeping
+    # the block entry side clear (PA9).
+    centres: list[tuple[float, float]] = []
+    for row in range(n_rows):
+        for col in range(n_cols):
+            if len(centres) >= n_communities:
+                break
+            ox = (col - (n_cols - 1) / 2) * _COMM_PITCH_X
+            oy = (row - (n_rows - 1) / 2) * _COMM_PITCH_Y
+            centres.append((block_cx + ox, block_cy + oy))
+
+    all_shelters:    list[dict] = []
+    all_taps:        list[dict] = []
+    all_latrines:    list[dict] = []
+    all_washing:     list[dict] = []
+    all_communities: list[dict] = []
+
+    for ccx, ccy in centres:
+        result = _place_community(
+            parcel, ccx, ccy, 16, shelter_w, shelter_h, occ
+        )
+        if result is None:
+            continue   # slot does not fit; skip without failing the whole block
+        occ = result["occ"]
+        all_shelters.extend(result["shelters"])
+        all_taps.extend(result["water_taps"])
+        all_latrines.extend(result["latrines"])
+        all_washing.extend(result["washing"])
+        all_communities.append(result)
+
+    if not all_communities:
+        return None
+
+    # Block convex hull for SH14 firebreak alignment
+    block_poly = unary_union(
+        [c["community_poly"] for c in all_communities]
+    ).convex_hull
+    bminx, bminy, bmaxx, bmaxy = block_poly.bounds
+
+    return {
+        "shelters":    all_shelters,
+        "water_taps":  all_taps,
+        "latrines":    all_latrines,
+        "washing":     all_washing,
+        "communities": all_communities,
+        "block_poly":  block_poly,
+        "built_width":  bmaxx - bminx,   # SH7: check against 300 m
+        "built_height": bmaxy - bminy,
+        "placed":      len(all_communities),
+        "occ":         occ,
+    }
+
+
 def _entry_point(site: dict) -> tuple[float, float]:
     """Parcel boundary vertex nearest to any external road endpoint."""
     parcel_pts = site["parcel_polygon_m"]
@@ -206,19 +500,10 @@ def place_all_facilities(site: dict, requirements: dict) -> dict:
         occ = _union_add(occ, ShapelyPolygon(hp_corners), clearance=0.5)
     _record("health_post", [{"corners_m": hp_corners}] if hp_corners else [], hp_req)
 
-    # ── 2. Water points — circles distributed across parcel ──────────────────
+    # ── 2. Water points — placed inside community modules (one tap per community)
+    #       Merged back in _run_placement() so the compliance gate sees the count.
     wp_req = _req("water_points")
-    wp_r   = 3.0
-    wp_raw = _grid_place(parcel, wp_req, wp_r * 2, wp_r * 2, occupied=occ)
-    wp_out = []
-    for item in wp_raw:
-        c = item["corners_m"]
-        ccx = (c[0][0] + c[2][0]) / 2
-        ccy = (c[0][1] + c[2][1]) / 2
-        wp_out.append({"corners_m": _circle(ccx, ccy, wp_r)})
-    for item in wp_out:
-        occ = _union_add(occ, ShapelyPolygon(item["corners_m"]), clearance=0.5)
-    _record("water_points", wp_out, wp_req)
+    _record("water_points", [], wp_req)
 
     # ── 3. Food distribution — adjacent to health post ────────────────────────
     fd_req = _req("food_distribution_points")
@@ -300,40 +585,15 @@ def place_all_facilities(site: dict, requirements: dict) -> dict:
     else:
         _record("worship_facility", [], wf_req)
 
-    # ── 8. Latrine blocks — grid distributed ─────────────────────────────────
-    #   Shelters avoid latrines by 6 m (SA4) via '_occupied_geo' below.
-    lt_req  = _req("toilets")
-    lt_w, lt_h = 4.0, 3.0
-    lt_out  = _grid_place(parcel, lt_req, lt_w, lt_h, occupied=occ)
-    for item in lt_out:
-        occ = _union_add(occ, ShapelyPolygon(item["corners_m"]), clearance=0.5)
-    _record("toilets", lt_out, lt_req)
+    # ── 8. Latrines — placed inside community modules (SA1, SA4 enforced there)
+    #       Merged back in _run_placement() so the compliance gate sees the count.
+    lt_req = _req("toilets")
+    _record("toilets", [], lt_req)
 
-    # ── 9. Washing facilities — adjacent to latrines ──────────────────────────
+    # ── 9. Washing — placed inside community modules (SA2 enforced there)
+    #       Merged back in _run_placement() so the compliance gate sees the count.
     wsh_req = _req("washing_facilities")
-    wsh_w, wsh_h = 4.0, 3.0
-    wsh_out = []
-    for latrine in lt_out[:wsh_req]:
-        lc  = latrine["corners_m"]
-        lcx = (lc[0][0] + lc[2][0]) / 2
-        lcy = (lc[0][1] + lc[2][1]) / 2
-        wc  = None
-        for ddx, ddy in ((lt_w / 2 + wsh_w / 2 + 1, 0),
-                          (0, lt_h / 2 + wsh_h / 2 + 1),
-                          (-(lt_w / 2 + wsh_w / 2 + 1), 0)):
-            wc = _nudge(parcel, lcx + ddx, lcy + ddy, wsh_w, wsh_h,
-                        step=1.5, max_rings=4, occupied=occ)
-            if wc:
-                break
-        if wc:
-            wsh_out.append({"corners_m": wc})
-            occ = _union_add(occ, ShapelyPolygon(wc), clearance=0.5)
-    if len(wsh_out) < wsh_req:
-        extra = _grid_place(parcel, wsh_req - len(wsh_out), wsh_w, wsh_h, occupied=occ)
-        for item in extra:
-            occ = _union_add(occ, ShapelyPolygon(item["corners_m"]), clearance=0.5)
-        wsh_out.extend(extra)
-    _record("washing_facilities", wsh_out[:wsh_req], wsh_req)
+    _record("washing_facilities", [], wsh_req)
 
     out["status"] = status
 
@@ -373,30 +633,211 @@ def place_shelters(site: dict,
                    requirements: dict,
                    occupied_geo=None) -> dict:
     """
-    Grid-based shelter placement AFTER all facilities.
+    Community-scan shelter placement AFTER CS5 facilities.
 
-    occupied_geo : shelter exclusion from place_all_facilities.
-                   Latrines already buffered 6 m (SA4) inside it.
-    SH6 (≥2 m between shelters): intra_clearance=2.0 in _grid_place.
-    Uses 1:1 grid (target=count) so shelters spread across the whole
-    parcel rather than packing into the bottom-left corner.
+    Hierarchy (Appendix F)
+    ----------------------
+    16 families → 1 community  (_place_community)
+    Communities grouped into blocks of 16 for output / SH7 reporting.
+
+    Strategy
+    --------
+    Candidate community centres are generated by walking the actual parcel
+    interior on a COMM_PITCH_X × COMM_PITCH_Y grid, filtered by an inset
+    polygon so every candidate is genuinely usable land.  This fills
+    irregular parcels end-to-end rather than stopping when a bounding-box
+    position falls outside the real polygon.
+
+    Rules enforced here
+    -------------------
+    R4   45 m²/pp density gate — hard fail if site area genuinely too small.
+    SH7  Per y-band cumulative E-W tracking: 30 m x-offset applied when a
+         band reaches 300 m of continuous built area.
+
+    Shortfall reporting
+    -------------------
+    If candidates are exhausted before n_communities are placed (awkward
+    parcel shape, thin strips, etc.) the returned dict includes
+    shortfall_communities and shortfall_shelters so the compliance gate
+    and caller can surface the partial result explicitly.
+
+    Returns
+    -------
+    dict: shelters, placed, required, community_water, community_latrines,
+          community_washing, communities, blocks, firebreak_xs; and
+          optionally r4_fail/r4_detail or shortfall_* keys.
     """
     shelter_req = requirements.get("shelter_units", {})
     required    = shelter_req.get("count", 0)
     area_m2     = shelter_req.get("area_per_unit_m2", 17.5)
 
+    _empty = {
+        "shelters": [], "placed": 0, "required": required,
+        "community_water": [], "community_latrines": [],
+        "community_washing": [], "communities": [], "blocks": [],
+        "firebreak_xs": [],
+    }
+
     if required == 0 or not site.get("parcel_polygon_m"):
-        return {"shelters": [], "placed": 0, "required": required}
+        return _empty
 
     unit_w, unit_h = _footprint(area_m2)
     parcel = ShapelyPolygon(site["parcel_polygon_m"])
+    minx, miny, maxx, maxy = parcel.bounds
 
-    items = _grid_place(
-        parcel, required, unit_w, unit_h,
-        occupied=occupied_geo,
-        intra_clearance=2.0,   # SH6: ≥2 m edge-to-edge between shelters
-    )
-    return {"shelters": items, "placed": len(items), "required": required}
+    # R4: 45 m²/pp density gate (area capacity, not placement coverage).
+    req_pop = required * 5
+    if parcel.area / 45.0 < req_pop:
+        return {**_empty,
+                "r4_fail": True,
+                "r4_detail": (f"site {parcel.area:.0f} m2 supports "
+                              f"{parcel.area/45:.0f} pp; {req_pop} pp requested")}
+
+    _N_FAM_PER_COMM   = 16     # Appendix F
+    _N_COMM_PER_BLOCK = 16     # Appendix F (grouping only — not a placement limit)
+    _COMM_PITCH_X     = 62.0   # community centre-to-centre E-W (matches _place_block)
+    _COMM_PITCH_Y     = 82.0   # community centre-to-centre N-S (matches _place_block)
+    _SH7_LIMIT        = 300.0  # SH7: firebreak after 300 m continuous E-W built area
+    _SH7_BREAK        = 30.0   # SH7: firebreak width (m)
+    _COMM_W_EST       = 50.0   # approximate E-W footprint of one community for SH7
+    # Inset margin — derived from community geometry, not a flat guess.
+    # Binding constraint is WS5 (tap ≥ 30 m from latrines) on the N-S axis:
+    #   South latrines sit at cy − 34 m; if cy < 34 m, _nudge places them near
+    #   y = 0 (centroid ≈ 1.5 m), giving tap–latrine distance cy − 1.5 m.
+    #   For WS5 to pass: cy ≥ 31.5 m → round up to 35 m.
+    # E-W axis (ring-1 at cx ± 18.5 m, _nudge tolerance 6 m, half-shelter 2.5 m)
+    #   requires only 15 m; 35 m covers both axes and is tighter than the old 50 m.
+    _MARGIN           = 35.0
+    # Community open-space half-extents (must match _place_community constants).
+    _OPEN_HW, _OPEN_HH = 10.0, 8.0   # half of _OPEN_W = 20, _OPEN_H = 16
+
+    n_communities = ceil(required / _N_FAM_PER_COMM)
+
+    # Inset the parcel by _MARGIN so community centres stay clear of the boundary.
+    inset = parcel.buffer(-_MARGIN)
+    if inset.is_empty:
+        inset = parcel   # very small / narrow parcel fallback
+
+    # Capture CS5 exclusion geometry before any community is added.  Used below
+    # to skip candidate positions where the community open space would land on a
+    # CS5 facility — the tap inside the open space intentionally bypasses the occ
+    # check, so we guard at candidate-selection level instead.
+    cs5_geo = occupied_geo
+
+    # Build candidate community centres: walk the inset interior on community pitch,
+    # south → north, west → east (so SH7 tracks left-to-right within y-bands).
+    # Use intersects() rather than contains() so points on the inset boundary
+    # (i.e. exactly _MARGIN from the parcel edge — valid minimum positions) are
+    # included rather than silently dropped.
+    candidates: list[tuple[float, float]] = []
+    y = miny + _MARGIN
+    while y <= maxy - _MARGIN:
+        x = minx + _MARGIN
+        while x <= maxx - _MARGIN:
+            if inset.intersects(_ShapelyPoint(x, y)):
+                candidates.append((x, y))
+            x += _COMM_PITCH_X
+        y += _COMM_PITCH_Y
+
+    # SH7 tracking: per y-band cumulative E-W built width.
+    # Communities within the same grid row share a y-band index.
+    def _y_band(y_val: float) -> int:
+        return round((y_val - miny) / _COMM_PITCH_Y)
+
+    cum_ew: dict[int, float]  = {}
+    x_off:  dict[int, float]  = {}
+    firebreak_xs: list[float] = []
+
+    occ             = occupied_geo
+    all_communities: list[dict] = []
+    all_shelters:    list[dict] = []
+    all_water:       list[dict] = []
+    all_latrines:    list[dict] = []
+    all_washing:     list[dict] = []
+
+    for cx_raw, cy in candidates:
+        if len(all_communities) >= n_communities:
+            break
+
+        band     = _y_band(cy)
+        band_cum = cum_ew.get(band, 0.0)
+        band_off = x_off.get(band, 0.0)
+
+        # SH7 span tracking.  The E-W extent of N communities on _COMM_PITCH_X centres
+        # is: first community contributes _COMM_W_EST (its own width); each subsequent
+        # one advances the right edge by _COMM_PITCH_X (the centre-to-centre pitch).
+        # Using only _COMM_W_EST per community underestimates the span by the gap
+        # (_COMM_PITCH_X − _COMM_W_EST = 12 m) per community and misses the SH7 trigger.
+        span_add = _COMM_W_EST if band_cum == 0.0 else _COMM_PITCH_X
+        if band_cum > 0.0 and band_cum + span_add > _SH7_LIMIT:
+            firebreak_xs.append(cx_raw + band_off)
+            band_off += _SH7_BREAK
+            x_off[band]  = band_off
+            band_cum     = 0.0           # reset span for this new sub-band
+            span_add     = _COMM_W_EST   # this community is now first in the sub-band
+
+        cx = cx_raw + band_off
+
+        # Skip if the firebreak offset has pushed this position outside the inset.
+        if not inset.intersects(_ShapelyPoint(cx, cy)):
+            continue
+
+        # Skip if the community open space (20 × 16 m) would land on a CS5 facility.
+        if cs5_geo is not None:
+            open_check = ShapelyPolygon([
+                (cx - _OPEN_HW, cy - _OPEN_HH),
+                (cx + _OPEN_HW, cy - _OPEN_HH),
+                (cx + _OPEN_HW, cy + _OPEN_HH),
+                (cx - _OPEN_HW, cy + _OPEN_HH),
+            ])
+            if open_check.intersects(cs5_geo):
+                continue
+
+        result = _place_community(parcel, cx, cy, _N_FAM_PER_COMM, unit_w, unit_h, occ)
+        if result is None:
+            continue
+
+        occ = result["occ"]
+        all_communities.append(result)
+        all_shelters.extend(result["shelters"])
+        all_water.extend(result["water_taps"])
+        all_latrines.extend(result["latrines"])
+        all_washing.extend(result["washing"])
+        cum_ew[band] = band_cum + span_add
+
+    # Group placed communities into reporting blocks of up to _N_COMM_PER_BLOCK.
+    all_blocks: list[dict] = []
+    for i in range(0, len(all_communities), _N_COMM_PER_BLOCK):
+        group = all_communities[i : i + _N_COMM_PER_BLOCK]
+        block_poly = unary_union([c["community_poly"] for c in group]).convex_hull
+        bminx_, bminy_, bmaxx_, bmaxy_ = block_poly.bounds
+        all_blocks.append({
+            "communities":  group,
+            "block_poly":   block_poly,
+            "built_width":  bmaxx_ - bminx_,
+            "built_height": bmaxy_ - bminy_,
+            "placed":       len(group),
+        })
+
+    placed_comms    = len(all_communities)
+    shortfall_comms = n_communities - placed_comms
+    shortfall_sh    = required - len(all_shelters)
+
+    out = {
+        "shelters":           all_shelters,
+        "placed":             len(all_shelters),
+        "required":           required,
+        "community_water":    all_water,
+        "community_latrines": all_latrines,
+        "community_washing":  all_washing,
+        "communities":        all_communities,
+        "blocks":             all_blocks,
+        "firebreak_xs":       firebreak_xs,
+    }
+    if shortfall_comms > 0:
+        out["shortfall_communities"] = shortfall_comms
+        out["shortfall_shelters"]    = shortfall_sh
+    return out
 
 
 # ─────────────────────────────────────────────────────────────────────────────
