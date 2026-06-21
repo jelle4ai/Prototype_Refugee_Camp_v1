@@ -12,10 +12,11 @@ from src.location import render_location_stage
 from src.requirements_engine import compute_requirements
 from src.site_search import metres_to_latlon
 from src.summary import render_summary_stage
+from src.feedback import classify_feedback, MOVABLE_FACILITY_KEYS
 
 st.set_page_config(page_title="Refugee Camp Layout Generator", layout="wide")
 
-STAGES = ["input", "location", "summary", "layout", "feedback"]
+STAGES = ["input", "location", "summary", "layout"]
 
 
 def init_session_state():
@@ -222,6 +223,28 @@ def _run_placement(site: dict, reqs: dict) -> tuple[dict, dict, dict]:
     return shelter_result, facilities, roads
 
 
+def _feedback_input_key() -> str:
+    version = st.session_state.get("_feedback_input_version", 0)
+    return f"feedback_input_v{version}"
+
+
+def _clear_feedback_state() -> None:
+    """Drop any stale feedback message and draft text — call whenever the
+    layout underneath them changes (regenerate, optimise, reset).
+
+    The draft text box is cleared by incrementing its key's version rather
+    than deleting the old key's session-state entry: a live browser can hold
+    its own buffered/debounced value for a text_area independent of the
+    server's copy, so deleting the old key doesn't reliably clear what's
+    displayed. Changing the key forces a brand-new widget with no possible
+    residual client-side state.
+    """
+    st.session_state.pop("_last_feedback_result", None)
+    st.session_state["_feedback_input_version"] = (
+        st.session_state.get("_feedback_input_version", 0) + 1
+    )
+
+
 def stage_layout():
     st.header("Stage: Layout")
 
@@ -243,6 +266,7 @@ def stage_layout():
                                               "facilities": fac,
                                               "roads": rd,
                                               "opt_log": []}
+        _clear_feedback_state()
         st.rerun()
 
     lr          = st.session_state["layout_result"]
@@ -256,6 +280,9 @@ def stage_layout():
     col_opt, col_reset = st.columns([2, 1])
     if col_opt.button("Optimise layout", key="btn_optimise",
                       help="Run greedy improvement loop (10 iterations max)"):
+        before_layout = {"shelter_result": shelter_result, "facilities": facilities, "roads": roads}
+        score_before = score_layout(before_layout, site, reqs)["quality"]["total"]
+
         with st.spinner("Optimising facility positions…"):
             fac_new, new_log = optimise_facilities(
                 site, reqs, facilities, shelter_result, roads, max_iter=10
@@ -263,12 +290,41 @@ def stage_layout():
         lr["facilities"] = fac_new
         lr["opt_log"]    = new_log
         # Regenerate roads with improved positions
-        lr["roads"] = place_roads(site, shelter_result, fac_new)
+        roads_new = place_roads(site, shelter_result, fac_new)
+        lr["roads"] = roads_new
+
+        after_layout = {"shelter_result": shelter_result, "facilities": fac_new, "roads": roads_new}
+        score_after = score_layout(after_layout, site, reqs)["quality"]["total"]
+        # Only count lines that record an actual move — optimise_facilities()
+        # also appends a final "Converged after N iteration(s)" summary line,
+        # which is not a move and must not be reported as one.
+        moved_count = sum(1 for entry in new_log if entry.startswith("iter "))
+        lr["last_optimise_summary"] = {
+            "moved": moved_count, "before": score_before, "after": score_after,
+        }
+        _clear_feedback_state()
         st.rerun()
 
     if col_reset.button("Reset layout", key="btn_reset_layout"):
         del st.session_state["layout_result"]
+        _clear_feedback_state()
         st.rerun()
+
+    opt_summary = lr.get("last_optimise_summary")
+    if opt_summary:
+        if opt_summary["moved"] == 0:
+            st.info(
+                "**Optimiser found no improvement** — layout already near-optimal "
+                f"(quality score stayed at {opt_summary['after']})."
+            )
+        else:
+            delta = opt_summary["after"] - opt_summary["before"]
+            arrow = "▲" if delta > 0 else "▼" if delta < 0 else "→"
+            st.info(
+                f"**Optimiser result:** moved {opt_summary['moved']} facility "
+                f"position(s) — quality score {opt_summary['before']} → "
+                f"{opt_summary['after']} ({arrow} {delta:+d})"
+            )
 
     if opt_log:
         with st.expander(f"Optimiser log ({len(opt_log)} entries)"):
@@ -328,6 +384,47 @@ def stage_layout():
         _layout_map(site, shelter_result["shelters"], facilities, roads),
         use_container_width=True,
     )
+
+    # ── Feedback (Stage 5) ────────────────────────────────────────────────────
+    st.subheader("Feedback")
+    st.write(
+        "Describe what you'd like changed, in plain language. This step only "
+        "classifies your request for now — it does not yet change the layout."
+    )
+
+    feedback_text = st.text_area(
+        "Your feedback", key=_feedback_input_key(),
+        placeholder="e.g. move the school closer to the north blocks",
+    )
+
+    if st.button("Submit feedback", key="btn_submit_feedback"):
+        if feedback_text.strip():
+            facility_counts = {
+                key: len(facilities.get(key, [])) for key in MOVABLE_FACILITY_KEYS
+            }
+            with st.spinner("Interpreting feedback…"):
+                result = classify_feedback(feedback_text.strip(), facility_counts)
+            st.session_state["_last_feedback_result"] = {
+                "text": feedback_text.strip(),
+                "result": result,
+            }
+
+    last = st.session_state.get("_last_feedback_result")
+    if last:
+        st.markdown(f"**You said:** {last['text']}")
+        r = last["result"]
+        if r["action"] == "unsupported":
+            st.error(f"**Declined** — {r['reason']}")
+        else:
+            st.success(
+                f"**Understood as:** `{r['action']}`"
+                + (f" — facility: `{r['facility']}`" if r.get("facility") else "")
+                + (f", direction: `{r['direction']}`" if r.get("direction") else "")
+                + (f", relative to: `{r['target_facility']}` (toward={r['toward']})"
+                   if r.get("target_facility") else "")
+            )
+            st.caption(r["reason"])
+            st.caption("Execution is not wired up yet — coming in the next step.")
 
     # ── Placement status ──────────────────────────────────────────────────────
     st.subheader("Placement status")
@@ -410,14 +507,7 @@ def stage_layout():
         summary["roads_count"] = len(site.get("roads_m", []))
         st.json(summary)
 
-    if st.button("Next →", key="btn_layout"):
-        advance_stage()
-
-
-def stage_feedback():
-    st.header("Stage: Feedback")
-    st.write("Placeholder — scoring and AI feedback here.")
-    if st.button("Start over", key="btn_feedback"):
+    if st.button("Start over", key="btn_layout"):
         advance_stage()
 
 
@@ -426,7 +516,6 @@ STAGE_HANDLERS = {
     "location": stage_location,
     "summary": stage_summary,
     "layout": stage_layout,
-    "feedback": stage_feedback,
 }
 
 
