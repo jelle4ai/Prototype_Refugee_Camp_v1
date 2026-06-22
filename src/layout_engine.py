@@ -695,8 +695,26 @@ def place_shelters(site: dict,
 
     _N_FAM_PER_COMM   = 16     # Appendix F
     _N_COMM_PER_BLOCK = 16     # Appendix F (grouping only — not a placement limit)
-    _COMM_PITCH_X     = 62.0   # community centre-to-centre E-W (matches _place_block)
-    _COMM_PITCH_Y     = 82.0   # community centre-to-centre N-S (matches _place_block)
+    # Candidate pitch — the closest two community centres can sit while making
+    # collision PROVABLY impossible, not just unlikely. _place_community checks
+    # every element it places against occ via _nudge (self-protecting: a blocked
+    # shelter/latrine/tap/washing is just skipped, never overlapped) EXCEPT the
+    # shared open space, which is only checked against the parcel boundary and
+    # then unioned into occ unconditionally. So the binding constraint is: a
+    # neighbouring community's 20x16 m open space (half-extents 10/8 m) must
+    # never be able to reach into this community's worst-case structural extent.
+    # Worst case = ring 4 (the deepest the shelter-ring search ever goes) at the
+    # largest shelter footprint in the codebase (22.5 m² cold-climate units,
+    # 5.0 x 4.5 m): rx4 = 18.51 + 3*(5.0+2.01) = 39.54, ry4 = 16.26 + 3*(4.5+2.01)
+    # = 35.79; outer edge from centre = 39.54+2.5 = 42.04 m (x), 35.79+2.25 =
+    # 38.04 m (y) — both exceed the fixed-offset latrines (cy±34, outer edge
+    # 35.5 m), so the shelter ring dominates on both axes.
+    # Minimum collision-proof pitch = worst-case extent + neighbour's open-space
+    # half-extent: x >= 42.04+10 = 52.04, y >= 38.04+8 = 46.04. Both chosen
+    # values sit ~2 m above that ceiling — true regardless of climate, ring
+    # depth, or obstruction pattern, not a probabilistic margin.
+    _COMM_PITCH_X     = 54.0   # community centre-to-centre E-W (m)
+    _COMM_PITCH_Y     = 48.0   # community centre-to-centre N-S (m)
     _SH7_LIMIT        = 300.0  # SH7: firebreak after 300 m continuous E-W built area
     _SH7_BREAK        = 30.0   # SH7: firebreak width (m)
     _COMM_W_EST       = 50.0   # approximate E-W footprint of one community for SH7
@@ -724,16 +742,21 @@ def place_shelters(site: dict,
     # check, so we guard at candidate-selection level instead.
     cs5_geo = occupied_geo
 
-    # Build candidate community centres: walk the inset interior on community pitch,
-    # south → north, west → east (so SH7 tracks left-to-right within y-bands).
+    # Build candidate community centres: walk the inset's OWN bounds (not the
+    # parcel's bounds with margin subtracted) on community pitch, south → north,
+    # west → east (so SH7 tracks left-to-right within y-bands). Walking the
+    # inset's bounds keeps this correct on the very-small/narrow fallback above:
+    # if inset == parcel (no margin applied), the walk covers the full parcel
+    # instead of parcel-bounds-minus-margin potentially inverting to zero rows.
     # Use intersects() rather than contains() so points on the inset boundary
     # (i.e. exactly _MARGIN from the parcel edge — valid minimum positions) are
     # included rather than silently dropped.
+    gminx, gminy, gmaxx, gmaxy = inset.bounds
     candidates: list[tuple[float, float]] = []
-    y = miny + _MARGIN
-    while y <= maxy - _MARGIN:
-        x = minx + _MARGIN
-        while x <= maxx - _MARGIN:
+    y = gminy
+    while y <= gmaxy:
+        x = gminx
+        while x <= gmaxx:
             if inset.intersects(_ShapelyPoint(x, y)):
                 candidates.append((x, y))
             x += _COMM_PITCH_X
