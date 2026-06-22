@@ -1,3 +1,4 @@
+import copy
 import streamlit as st
 import streamlit.components.v1 as components
 import plotly.graph_objects as go
@@ -5,7 +6,8 @@ from math import cos, radians
 from src.conversation import render_input_stage
 from src.layout_engine import (
     place_shelters, place_all_facilities, place_roads,
-    optimise_facilities, FACILITY_STYLE,
+    optimise_facilities, move_facility, FACILITY_STYLE,
+    MOVE_DEFAULT_DISTANCE_M,
 )
 from src.scoring import score_layout, compliance_gate
 from src.location import render_location_stage
@@ -17,6 +19,14 @@ from src.feedback import classify_feedback, MOVABLE_FACILITY_KEYS
 st.set_page_config(page_title="Refugee Camp Layout Generator", layout="wide")
 
 STAGES = ["input", "location", "summary", "layout"]
+
+# Facility types whose moves are actually executed. Schools / worship_facility
+# stay declined (multi-instance — needs facility numbering, not built yet),
+# and target_facility/"toward" relative moves stay declined too (v1 is
+# direction-only).
+EXECUTABLE_MOVE_KEYS = {
+    "health_post", "food_distribution", "community_space", "administrative_area",
+}
 
 
 def init_session_state():
@@ -302,6 +312,7 @@ def stage_layout():
         lr["last_optimise_summary"] = {
             "moved": moved_count, "before": score_before, "after": score_after,
         }
+        lr.pop("last_move_summary", None)
         _clear_feedback_state()
         st.rerun()
 
@@ -330,6 +341,26 @@ def stage_layout():
         with st.expander(f"Optimiser log ({len(opt_log)} entries)"):
             for entry in opt_log:
                 st.text(entry)
+
+    move_summary = lr.get("last_move_summary")
+    if move_summary:
+        delta = move_summary["after"] - move_summary["before"]
+        arrow = "▲" if delta > 0 else "▼" if delta < 0 else "→"
+        label = FACILITY_STYLE[move_summary["facility"]][0]
+        moved_m     = move_summary.get("moved_m") or 0.0
+        requested_m = move_summary.get("requested_m") or moved_m
+        blocked_by  = move_summary.get("blocked_by")
+        partial_note = ""
+        if blocked_by and moved_m < requested_m - 0.5:
+            partial_note = (
+                f" (requested {requested_m:.0f} m, blocked beyond that by "
+                f"{', '.join(blocked_by)})"
+            )
+        st.info(
+            f"**Move applied:** moved {label} {moved_m:.0f} m {move_summary['direction']}"
+            f"{partial_note} — quality score {move_summary['before']} → "
+            f"{move_summary['after']} ({arrow} {delta:+d})"
+        )
 
     # ── Compliance gate (Step 3) ──────────────────────────────────────────────
     _layout = {"shelter_result": shelter_result, "facilities": facilities, "roads": roads}
@@ -388,13 +419,15 @@ def stage_layout():
     # ── Feedback (Stage 5) ────────────────────────────────────────────────────
     st.subheader("Feedback")
     st.write(
-        "Describe what you'd like changed, in plain language. This step only "
-        "classifies your request for now — it does not yet change the layout."
+        "Describe what you'd like changed, in plain language. A compass-direction "
+        "move of a single health post, food distribution, community space, or "
+        "administrative area is executed live. Everything else is classified "
+        "and explained, but not yet applied."
     )
 
     feedback_text = st.text_area(
         "Your feedback", key=_feedback_input_key(),
-        placeholder="e.g. move the school closer to the north blocks",
+        placeholder="e.g. move the food distribution north",
     )
 
     if st.button("Submit feedback", key="btn_submit_feedback"):
@@ -404,17 +437,77 @@ def stage_layout():
             }
             with st.spinner("Interpreting feedback…"):
                 result = classify_feedback(feedback_text.strip(), facility_counts)
+
+            move_outcome = None
+            if (result["action"] == "move_facility"
+                    and result.get("facility") in EXECUTABLE_MOVE_KEYS
+                    and result.get("direction") in ("north", "south", "east", "west")
+                    and not result.get("target_facility")):
+                before_layout = {"shelter_result": shelter_result,
+                                  "facilities": facilities, "roads": roads}
+                score_before  = score_layout(before_layout, site, reqs)["quality"]["total"]
+                gate_before   = compliance_gate(before_layout, site, reqs)
+                passed_before = {c["name"] for c in gate_before["checks"] if c["pass"]}
+
+                requested_m = result.get("distance_m") or MOVE_DEFAULT_DISTANCE_M
+                fac_trial = copy.deepcopy(facilities)
+                fac_trial, reject_reason, moved_m, blocked_by = move_facility(
+                    site, fac_trial, shelter_result, roads,
+                    result["facility"], result["direction"],
+                    distance_m=result.get("distance_m"),
+                )
+                if reject_reason:
+                    move_outcome = {"ok": False, "reason": reject_reason}
+                else:
+                    roads_trial  = place_roads(site, shelter_result, fac_trial)
+                    after_layout = {"shelter_result": shelter_result,
+                                     "facilities": fac_trial, "roads": roads_trial}
+                    gate_after   = compliance_gate(after_layout, site, reqs)
+                    newly_failed = [c for c in gate_after["checks"]
+                                    if not c["pass"] and c["name"] in passed_before]
+                    if newly_failed:
+                        names = ", ".join(
+                            f"{c['name']} ({c['detail']})" for c in newly_failed
+                        )
+                        move_outcome = {
+                            "ok": False,
+                            "reason": f"Move rejected — it would break compliance: {names}.",
+                        }
+                    else:
+                        score_after = score_layout(after_layout, site, reqs)["quality"]["total"]
+                        lr["facilities"] = fac_trial
+                        lr["roads"]      = roads_trial
+                        lr.pop("last_optimise_summary", None)
+                        lr["last_move_summary"] = {
+                            "facility": result["facility"],
+                            "direction": result["direction"],
+                            "moved_m": moved_m,
+                            "requested_m": requested_m,
+                            "blocked_by": blocked_by,
+                            "before": score_before, "after": score_after,
+                        }
+                        move_outcome = {"ok": True}
+
+            if move_outcome and move_outcome["ok"]:
+                _clear_feedback_state()
+                st.rerun()
+
             st.session_state["_last_feedback_result"] = {
                 "text": feedback_text.strip(),
                 "result": result,
+                "move_outcome": move_outcome,
             }
 
     last = st.session_state.get("_last_feedback_result")
     if last:
         st.markdown(f"**You said:** {last['text']}")
         r = last["result"]
+        move_outcome = last.get("move_outcome")
         if r["action"] == "unsupported":
             st.error(f"**Declined** — {r['reason']}")
+        elif move_outcome is not None and not move_outcome["ok"]:
+            label = FACILITY_STYLE[r["facility"]][0]
+            st.error(f"**{label}:** {move_outcome['reason']}")
         else:
             st.success(
                 f"**Understood as:** `{r['action']}`"
@@ -424,7 +517,14 @@ def stage_layout():
                    if r.get("target_facility") else "")
             )
             st.caption(r["reason"])
-            st.caption("Execution is not wired up yet — coming in the next step.")
+            if r["action"] == "move_facility":
+                st.caption(
+                    "Single-instance compass-direction moves are executed live. "
+                    "Moves relative to another facility, and facility types with "
+                    "more than one instance (like schools), are classified but "
+                    "not yet applied — that needs facility numbering, which is "
+                    "the next step."
+                )
 
     # ── Placement status ──────────────────────────────────────────────────────
     st.subheader("Placement status")

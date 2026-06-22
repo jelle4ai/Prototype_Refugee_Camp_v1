@@ -1033,6 +1033,167 @@ def optimise_facilities(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Single-instance facility move  (Step 5 feedback execution)
+# ─────────────────────────────────────────────────────────────────────────────
+
+_DIRECTION_VECTORS = {
+    "north": (0.0, 1.0),
+    "south": (0.0, -1.0),
+    "east":  (1.0, 0.0),
+    "west":  (-1.0, 0.0),
+}
+_MOVE_STEP             = 2.0    # search granularity, metres
+MOVE_DEFAULT_DISTANCE_M = 26.0  # default travel when the planner names no distance (13 steps, exact)
+
+
+def _blockers_for(candidate: ShapelyPolygon,
+                   parcel: ShapelyPolygon,
+                   road_buf,
+                   shelter_union,
+                   other_geo: dict[str, object]) -> list[str]:
+    """Every piece of geometry *candidate* actually collides with, named for
+    the planner — not just the first one in a fixed priority order."""
+    blockers: list[str] = []
+    if not parcel.contains(candidate):
+        blockers.append("the parcel boundary")
+    if road_buf is not None and candidate.intersects(road_buf):
+        blockers.append("the road network")
+    if shelter_union is not None and candidate.intersects(shelter_union):
+        blockers.append("shelters")
+    for k, geo in other_geo.items():
+        if candidate.intersects(geo):
+            blockers.append(FACILITY_STYLE[k][0].lower())
+    return blockers or ["the available space in that direction"]
+
+
+def move_facility(
+        site:           dict,
+        facilities:     dict,
+        shelter_result: dict,
+        roads:          dict,
+        key:            str,
+        direction:      str,
+        distance_m:     float | None = None,
+) -> tuple[dict, str | None, float | None, list[str] | None]:
+    """
+    Move the single instance of facility *key* in *direction* by
+    *distance_m* (or MOVE_DEFAULT_DISTANCE_M if not given), against the real
+    occupied geometry (roads, shelters, every other facility). Reuses the
+    same occupied-geometry construction and _nudge() search the optimiser
+    uses — just walked along one axis instead of searched in 8 directions.
+
+    Searches from the full requested distance downward in _MOVE_STEP
+    increments and lands at the FURTHEST valid position at or under that
+    distance, so a partially-blocked direction still moves as far as it can
+    rather than failing outright.
+
+    Returns (facilities, reason, moved_m, blocked_by):
+      - Full move: reason=None, moved_m=requested distance, blocked_by=None.
+      - Partial move (blocked before reaching the requested distance):
+        reason=None, moved_m=the shorter distance actually travelled,
+        blocked_by=names of everything that stopped it going further.
+      - Rejection (not even one step possible): *facilities* unchanged,
+        reason names every piece of geometry the nearest attempted position
+        collided with, moved_m=None, blocked_by=the same names as reason.
+
+    Only valid for facility types with exactly one placed instance; callers
+    must check that before calling.
+    """
+    parcel = ShapelyPolygon(site["parcel_polygon_m"])
+    items  = facilities.get(key, [])
+    if len(items) != 1:
+        return (facilities,
+                f"{FACILITY_STYLE[key][0]} has more than one instance — cannot target a single one yet.",
+                None, None)
+
+    target_distance = distance_m if distance_m and distance_m > 0 else MOVE_DEFAULT_DISTANCE_M
+
+    old_corners = items[0]["corners_m"]
+    xs = [p[0] for p in old_corners]
+    ys = [p[1] for p in old_corners]
+    old_cx, old_cy = sum(xs) / len(xs), sum(ys) / len(ys)
+    fac_w, fac_h   = max(xs) - min(xs), max(ys) - min(ys)
+
+    # Pre-compute the same sub-geometries optimise_facilities() unions into
+    # occ_without, kept separate here so a rejection can name which one hit.
+    road_buf = None
+    for road in (site.get("roads_m") or []):
+        if len(road) >= 2:
+            road_buf = _union_add(road_buf, _ShapelyLine(road).buffer(1.0))
+
+    shelter_union = None
+    for sh in shelter_result.get("shelters", []):
+        shelter_union = _union_add(shelter_union, ShapelyPolygon(sh["corners_m"]), clearance=0.01)
+
+    other_geo: dict[str, object] = {}
+    for k, fac_items in facilities.items():
+        if k in ("status", "_occupied_geo") or k == key:
+            continue
+        geo = None
+        for item in fac_items:
+            try:
+                geo = _union_add(geo, ShapelyPolygon(item["corners_m"]), clearance=0.5)
+            except Exception:
+                pass
+        if geo is not None:
+            other_geo[k] = geo
+
+    occ_without = road_buf
+    if shelter_union is not None:
+        occ_without = shelter_union if occ_without is None else occ_without.union(shelter_union)
+    for geo in other_geo.values():
+        occ_without = geo if occ_without is None else occ_without.union(geo)
+
+    dx, dy = _DIRECTION_VECTORS[direction]
+    old_proj = old_cx * dx + old_cy * dy
+    nearest_blocked: ShapelyPolygon | None = None
+
+    # Walk DOWN from the full requested distance to the smallest step, so the
+    # first hit found is the FURTHEST valid position at or under the target —
+    # a partially-blocked direction still moves as far as it can rather than
+    # failing outright. nearest_blocked is overwritten every iteration so
+    # that, when a step succeeds, it holds the immediately-preceding failed
+    # attempt (what stopped further progress) — or, if every distance fails,
+    # the smallest one (closest to the facility's current position), the
+    # most informative one to diagnose a total rejection against.
+    n_target_steps = max(1, round(target_distance / _MOVE_STEP))
+    for step_n in range(n_target_steps, 0, -1):
+        dist = step_n * _MOVE_STEP
+        trial_cx, trial_cy = old_cx + dx * dist, old_cy + dy * dist
+        corners = _nudge(parcel, trial_cx, trial_cy, fac_w, fac_h,
+                         step=2.0, max_rings=3, occupied=occ_without)
+        if corners is not None:
+            # _nudge's own ring search can land back near the starting point
+            # (its search radius can exceed this step's distance) — only
+            # accept a candidate that is genuine forward progress, so a
+            # blocked direction can never be silently reported as a move.
+            cxs = [p[0] for p in corners]
+            cys = [p[1] for p in corners]
+            new_cx, new_cy = sum(cxs) / len(cxs), sum(cys) / len(cys)
+            if new_cx * dx + new_cy * dy > old_proj + 0.5:
+                items[0]["corners_m"] = corners
+                moved_dist = ((new_cx - old_cx) ** 2 + (new_cy - old_cy) ** 2) ** 0.5
+                blocked_by = (
+                    _blockers_for(nearest_blocked, parcel, road_buf, shelter_union, other_geo)
+                    if step_n < n_target_steps and nearest_blocked is not None
+                    else None
+                )
+                return facilities, None, moved_dist, blocked_by
+        nearest_blocked = ShapelyPolygon(_rect(trial_cx, trial_cy, fac_w, fac_h))
+
+    # No valid position found anywhere along that direction — diagnose the
+    # nearest attempted candidate against every sub-geometry it could have
+    # collided with, reporting all of them, not just the highest-priority one.
+    blockers = _blockers_for(nearest_blocked, parcel, road_buf, shelter_union, other_geo) \
+        if nearest_blocked is not None else ["the available space in that direction"]
+    reason = (
+        f"Move rejected — no valid position to the {direction}: "
+        f"blocked by {', '.join(blockers)}."
+    )
+    return facilities, reason, None, blockers
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Road network  (PA1 main road · PA2/PA4 secondary roads and footpaths)
 # — unchanged from original —
 # ─────────────────────────────────────────────────────────────────────────────

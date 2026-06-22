@@ -43,6 +43,13 @@ SUPPORTED ACTIONS:
    parcel (e.g. "closer to the north blocks" → direction "north"). Use
    "target_facility"/"toward" when the planner names another facility to move
    relative to (e.g. "move the school away from the clinic").
+   Optional field "distance_m": if the planner names an explicit distance in
+   metres alongside a "direction" (e.g. "move the food distribution 100
+   metres north", "shift it 50m west"), extract the number as "distance_m".
+   If no distance is named, set "distance_m" to null — a sensible default
+   distance is used. Never invent a distance the planner did not state.
+   "distance_m" only applies with "direction"; always null when using
+   "target_facility"/"toward".
 
 2. "optimise" — the planner wants the layout generally improved, tightened, or
    made more efficient without naming a specific facility or direction
@@ -95,6 +102,7 @@ JSON schema (always include every field; use null where not applicable):
   "action": "move_facility" | "optimise" | "revert" | "unsupported",
   "facility": <one of the facility keys above, or null>,
   "direction": <"north" | "south" | "east" | "west", or null>,
+  "distance_m": <a positive number of metres explicitly stated, or null>,
   "target_facility": <one of the facility keys above, or null>,
   "toward": <true, false, or null>,
   "reason": <string>
@@ -135,6 +143,7 @@ def classify_feedback(message: str, facility_counts: dict[str, int] | None = Non
         "action": "unsupported",
         "facility": None,
         "direction": None,
+        "distance_m": None,
         "target_facility": None,
         "toward": None,
         "reason": "Could not interpret this request as one of the supported actions.",
@@ -157,6 +166,7 @@ def classify_feedback(message: str, facility_counts: dict[str, int] | None = Non
     if action not in ("move_facility", "optimise", "revert", "unsupported"):
         return fallback
 
+    distance_m = None
     if action == "move_facility":
         facility = parsed.get("facility")
         direction = parsed.get("direction")
@@ -167,12 +177,17 @@ def classify_feedback(message: str, facility_counts: dict[str, int] | None = Non
             target_facility not in MOVABLE_FACILITY_KEYS or target_facility == facility
         ):
             return fallback
+        if direction in ("north", "south", "east", "west"):
+            raw_distance = parsed.get("distance_m")
+            if isinstance(raw_distance, (int, float)) and raw_distance > 0:
+                distance_m = float(raw_distance)
 
     result = dict(fallback)
     result.update({
         "action": action,
         "facility": parsed.get("facility"),
         "direction": parsed.get("direction"),
+        "distance_m": distance_m,
         "target_facility": parsed.get("target_facility"),
         "toward": parsed.get("toward"),
         "reason": parsed.get("reason") or fallback["reason"],
