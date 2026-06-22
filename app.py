@@ -268,6 +268,30 @@ def stage_layout():
             advance_stage()
         return
 
+    # ── Road-data status (PA14) — shown before the map, every time, so the
+    # planner can tell at a glance whether this run is a valid test of
+    # entrance/road placement, without opening a debug expander ────────────
+    roads_fetch_error = site.get("roads_fetch_error", "")
+    roads_m_count      = len(site.get("roads_m") or [])
+    if roads_fetch_error:
+        st.error(
+            "**Running without external road data.** Overpass road detection "
+            f"failed ({roads_fetch_error}). The entrance and road network are "
+            "using parcel-only fallback logic, not real road geometry — "
+            "**this run is not a valid test of entrance or road placement.**"
+        )
+    elif roads_m_count == 0:
+        st.info(
+            "No OSM roads were detected near this site (not a fetch failure — "
+            "genuinely none nearby). Entrance and road connections use "
+            "parcel-only positioning."
+        )
+    else:
+        st.caption(
+            f"✓ Real road data loaded: {roads_m_count} road segment(s) detected "
+            "for this site — entrance and road connections use this data."
+        )
+
     # ── Placement (cached in session state so the optimiser can update it) ────
     if "layout_result" not in st.session_state:
         with st.spinner("Placing facilities and shelters…"):

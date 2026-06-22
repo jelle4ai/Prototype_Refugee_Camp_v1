@@ -25,7 +25,7 @@ from math import ceil, sqrt, pi, cos as _cos, sin as _sin, radians as _rad
 from shapely.geometry import (Polygon as ShapelyPolygon,
                                LineString as _ShapelyLine,
                                Point as _ShapelyPoint)
-from shapely.ops import unary_union
+from shapely.ops import unary_union, nearest_points
 import networkx as _nx
 
 
@@ -432,20 +432,87 @@ def _place_block(
 
 
 def _entry_point(site: dict) -> tuple[float, float]:
-    """Parcel boundary vertex nearest to any external road endpoint."""
+    """
+    Point on the parcel boundary nearest to the most relevant external road.
+
+    WORK IN PROGRESS — known to still misplace the entrance in some cases.
+    PA14: the entrance should connect to a real detected external road. Two
+    steps, deliberately separated:
+      1. Pick the ROAD: currently by minimum distance from each road's full
+         geometry to the parcel. CONFIRMED WRONG on real data from two
+         separate sites: a road that merely touches/terminates near a
+         corner (distance ~0) beats a road that runs alongside the parcel
+         for hundreds of metres, because single-point distance rewards a
+         trivial touch over genuine frontage. An "alongside-length within
+         an 8 m buffer" measure was tried as a diagnostic and correctly
+         identifies the real frontage road in both cases, but is not yet
+         wired into the actual selection below.
+      2. Project onto the boundary: nearest_points() from the chosen road to
+         the parcel exterior. Even once the right road is selected, this
+         still anchors to that road's single closest point, which can be a
+         corner-proximate spot rather than the middle of the stretch where
+         it actually runs alongside the parcel. Likely fix: place the
+         entrance at the midpoint of the alongside-stretch instead.
+    Side-agnostic intent (purely geometric, no hard-coded edge) holds for
+    the mechanism, but the selection criterion itself needs to change
+    before this reliably lands on the real access road.
+
+    TEMPORARY DIAGNOSTIC LOGGING below (the print() calls) — added to debug
+    the above, deliberately left in across sessions so the trace doesn't
+    need re-adding. MUST BE REMOVED before this function is considered done.
+    """
     parcel_pts = site["parcel_polygon_m"]
     roads = site.get("roads_m") or []
-    if roads:
-        best, best_d = None, float("inf")
-        for road in roads:
-            for rx, ry in road:
-                for px, py in parcel_pts:
-                    d = (rx - px) ** 2 + (ry - py) ** 2
-                    if d < best_d:
-                        best_d, best = d, (px, py)
-        if best:
-            return best
     parcel = ShapelyPolygon(parcel_pts)
+
+    print(f"[_entry_point DEBUG] called with {len(roads)} road(s)", flush=True)
+    if roads:
+        # PROPOSED MEASURE (not yet used for selection -- diagnostic only):
+        # length of each road's geometry that falls within an 8 m buffer of
+        # the parcel, vs. its single nearest-point distance. A road that runs
+        # alongside the parcel should score high on alongside-length; a road
+        # that merely terminates or clips past it near one point should not,
+        # even if that single point is very close.
+        parcel_buf = parcel.buffer(8.0)
+        best_road, best_d, best_i = None, float("inf"), None
+        for i, road in enumerate(roads):
+            if len(road) < 2:
+                print(f"[_entry_point DEBUG]   road {i}: skipped (<2 pts)", flush=True)
+                continue
+            line = _ShapelyLine(road)
+            d = line.distance(parcel)
+            inter = line.intersection(parcel_buf)
+            alongside_len = inter.length
+            xs = [p[0] for p in road]
+            ys = [p[1] for p in road]
+            print(f"[_entry_point DEBUG]   road {i}: {len(road)} pts, "
+                  f"bbox=({min(xs):.0f},{min(ys):.0f})-({max(xs):.0f},{max(ys):.0f}), "
+                  f"distance to parcel={d:.1f} m, "
+                  f"alongside-length (8m buffer)={alongside_len:.1f} m", flush=True)
+            # WHERE the alongside-length falls -- a long road can border an
+            # irregular parcel along more than one stretch; break the
+            # buffer-intersection into its contiguous pieces and show each
+            # piece's own extent, so a result like "532 m total" can be
+            # read as "one 532 m stretch here" vs "scattered pieces there
+            # and there", which is exactly what distinguishes "this road's
+            # frontage is genuinely at the corner" from "the entrance
+            # anchored to an unrepresentative point far from where most of
+            # the proximity actually is."
+            if not inter.is_empty:
+                pieces = list(inter.geoms) if hasattr(inter, "geoms") else [inter]
+                for j, g in enumerate(pieces):
+                    gb = g.bounds
+                    print(f"[_entry_point DEBUG]     piece {j}: length={g.length:.1f} m, "
+                          f"bbox=({gb[0]:.0f},{gb[1]:.0f})-({gb[2]:.0f},{gb[3]:.0f})", flush=True)
+            if d < best_d:
+                best_d, best_road, best_i = d, road, i
+        if best_road is not None:
+            _, on_boundary = nearest_points(_ShapelyLine(best_road), parcel.exterior)
+            print(f"[_entry_point DEBUG] WINNER (current distance-based logic): road {best_i}, "
+                  f"distance={best_d:.1f} m, "
+                  f"entrance returned=({on_boundary.x:.1f},{on_boundary.y:.1f})", flush=True)
+            return (on_boundary.x, on_boundary.y)
+
     minx, miny, maxx, _ = parcel.bounds
     return ((minx + maxx) / 2, miny)
 
@@ -1292,17 +1359,22 @@ def place_roads(site: dict,
     # ── Entrance: boundary vertex nearest to external roads ───────────────────
     ex, ey = _entry_point(site)
 
-    # ── Health post centre (main road target) ─────────────────────────────────
-    hp_items = facilities.get("health_post", [])
-    if hp_items:
-        c = hp_items[0]["corners_m"]
-        hp_cx = sum(p[0] for p in c) / len(c)
-        hp_cy = sum(p[1] for p in c) / len(c)
-    else:
-        hp_cx, hp_cy = rep.x, rep.y
+    # ── Far point: parcel boundary vertex farthest from the entrance ──────────
+    # PA1: the main road must run the length of the site, not just connect a
+    # couple of clustered interior points. Previously the third waypoint was
+    # the health post — itself usually placed near the centre, like most CS5
+    # facilities — so all three waypoints (entrance, centroid, health post)
+    # ended up clustered together, giving secondary/tertiary roads almost no
+    # spread of attachment points to branch from (the "everything radiates
+    # from one point" symptom). Using the farthest boundary vertex instead
+    # gives a real backbone spanning two genuine extremities of the parcel,
+    # with the centroid as a midpoint — three well-separated attachment
+    # regions instead of one tight cluster. Facilities (including the health
+    # post) still connect via the unchanged secondary-road logic below.
+    far_x, far_y = max(parcel.exterior.coords, key=lambda p: _dist2(p, (ex, ey)))
 
-    # ── 1. Main road: entrance → parcel centroid → health post ────────────────
-    raw_wp = [(ex, ey), (rep.x, rep.y), (hp_cx, hp_cy)]
+    # ── 1. Main road: entrance → parcel centroid → farthest boundary point ────
+    raw_wp = [(ex, ey), (rep.x, rep.y), (far_x, far_y)]
     waypoints: list[tuple] = [raw_wp[0]]
     for pt in raw_wp[1:]:
         if _dist2(pt, waypoints[-1]) > 25:      # skip if < 5 m apart

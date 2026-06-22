@@ -12,6 +12,7 @@ src.geocoding and re-exported from this module for downstream stages.
 """
 from __future__ import annotations
 
+import time
 from math import cos, radians, sqrt
 
 import requests
@@ -102,22 +103,43 @@ def _dist_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 
 
 # ── Overpass API ──────────────────────────────────────────────────────────────
+# 504s and other 5xx responses from the public Overpass instance are common
+# and usually transient (server-side load), so they're worth a couple of
+# short-backoff retries. A malformed query (4xx) won't fix itself by
+# retrying, so those fail immediately, same as any non-timeout/non-5xx error.
+_OVERPASS_MAX_RETRIES = 2
+_OVERPASS_BACKOFF_S   = (2.0, 4.0)
+
 
 def _overpass(query: str, timeout_s: int = 65) -> tuple[dict | None, str]:
     headers = {"User-Agent": "refugee-camp-planner/1.0", "Accept": "application/json"}
-    try:
-        resp = requests.post(
-            _OVERPASS_URL, data={"data": query},
-            headers=headers, timeout=timeout_s + 10,
-        )
-        resp.raise_for_status()
-        return resp.json(), ""
-    except requests.Timeout:
-        return None, "Overpass API timed out. Try a smaller search radius or retry."
-    except requests.RequestException as exc:
-        return None, f"Network error contacting Overpass: {exc}"
-    except Exception as exc:
-        return None, f"Unexpected error: {exc}"
+    last_err = ""
+    for attempt in range(_OVERPASS_MAX_RETRIES + 1):
+        transient = False
+        try:
+            resp = requests.post(
+                _OVERPASS_URL, data={"data": query},
+                headers=headers, timeout=timeout_s + 10,
+            )
+            resp.raise_for_status()
+            return resp.json(), ""
+        except requests.Timeout:
+            last_err  = "Overpass API timed out. Try a smaller search radius or retry."
+            transient = True
+        except requests.HTTPError as exc:
+            status    = exc.response.status_code if exc.response is not None else None
+            last_err  = f"Network error contacting Overpass: {exc}"
+            transient = status is not None and 500 <= status < 600
+        except requests.RequestException as exc:
+            last_err = f"Network error contacting Overpass: {exc}"
+        except Exception as exc:
+            last_err = f"Unexpected error: {exc}"
+
+        if not transient or attempt == _OVERPASS_MAX_RETRIES:
+            break
+        time.sleep(_OVERPASS_BACKOFF_S[attempt])
+
+    return None, last_err
 
 
 def _land_water_query(
@@ -534,6 +556,10 @@ def _init_state(inputs: dict) -> None:
         "ss2_roads_done":    False,
         "ss2_roads_m":       [],
         "ss2_roads_error":   "",
+        # Last successfully-fetched roads per parcel label, kept separately
+        # from ss2_roads_m so a failed retry never destroys data we already
+        # had for that parcel — see render_location_stage's selection block.
+        "ss2_roads_cache":   {},
     })
     if city:
         result = geocode_city(city)
@@ -617,6 +643,8 @@ def render_location_stage() -> None:
                     "ss2_focused":       None,
                     "ss2_roads_done":    False,
                     "ss2_roads_m":       [],
+                    "ss2_roads_error":   "",
+                    "ss2_roads_cache":   {},   # new city -> labels refer to different parcels
                 })
                 st.rerun()
             else:
@@ -656,6 +684,7 @@ def render_location_stage() -> None:
             "ss2_roads_done":  False,
             "ss2_roads_m":     [],
             "ss2_roads_error": "",
+            "ss2_roads_cache": {},   # new search -> labels refer to different parcels
         })
         with st.spinner(
             f"Searching for open land near {st.session_state['ss2_city']} "
@@ -754,10 +783,16 @@ def render_location_stage() -> None:
             st.rerun()
 
         if select_clicked and not is_selected:
+            # Seed from the per-parcel cache rather than blanking to [] --
+            # if this parcel's roads were already fetched successfully earlier
+            # this session, a fresh fetch that then fails (e.g. a transient
+            # Overpass 504) must not destroy that data. See the fetch block
+            # below, which only overwrites on a successful result.
+            cached = st.session_state["ss2_roads_cache"].get(c["label"], [])
             st.session_state.update({
                 "ss2_selected":    c["label"],
                 "ss2_roads_done":  False,
-                "ss2_roads_m":     [],
+                "ss2_roads_m":     cached,
                 "ss2_roads_error": "",
             })
             st.rerun()
@@ -784,19 +819,32 @@ def render_location_stage() -> None:
             roads_m, roads_err = _fetch_parcel_roads(
                 bb[0], bb[1], bb[2], bb[3], origin_lat, origin_lon
             )
-        st.session_state.update({
-            "ss2_roads_done":  True,
-            "ss2_roads_m":     roads_m,
-            "ss2_roads_error": roads_err,
-        })
+        if roads_err:
+            # Failed even after _fetch_parcel_roads' internal retries --
+            # leave ss2_roads_m exactly as the selection step seeded it
+            # (cached previous success, or [] if there's never been one)
+            # rather than overwriting good data with this failure's [].
+            st.session_state["ss2_roads_error"] = roads_err
+        else:
+            # A real result, even a confirmed-empty one -- becomes the new
+            # cache entry for this parcel.
+            st.session_state["ss2_roads_cache"][sel_label] = roads_m
+            st.session_state.update({"ss2_roads_m": roads_m, "ss2_roads_error": ""})
+        st.session_state["ss2_roads_done"] = True
         st.rerun()
 
     roads_m   = st.session_state["ss2_roads_m"]
     roads_err = st.session_state["ss2_roads_error"]
 
-    if roads_err:
-        st.warning(f"Road detection issue: {roads_err}")
-    if roads_m:
+    if roads_err and roads_m:
+        st.warning(
+            f"Road detection issue: {roads_err} — showing {len(roads_m)} road "
+            f"segment(s) from an earlier successful fetch for this site."
+        )
+    elif roads_err:
+        st.warning(f"Road detection issue: {roads_err} — no road data available "
+                   f"for this site. Try selecting it again to retry.")
+    elif roads_m:
         st.success(f"{len(roads_m)} road segment(s) detected within site area.")
     else:
         st.info("No existing roads detected within the site boundary.")
@@ -818,6 +866,7 @@ def render_location_stage() -> None:
         "centre_lon":       sel["centroid_lon"],
         "parcel_polygon_m": parcel_polygon_m,
         "roads_m":          roads_m,
+        "roads_fetch_error": roads_err,
     }
 
     st.divider()

@@ -9,7 +9,23 @@
 
 ## What still needs to be done
 - The engine cannot yet target one of several same-type facilities individually (facility numbering is a planned feature, needed for single-instance moves on schools/worship_facility and for relative target_facility/"toward" moves).
-- Roads connect but do not follow the three-level hierarchy; gradient, orientation, drainage and site suitability remain future work.
+
+### Road network / entrance — IN PROGRESS, NOT FINISHED (mid-debugging save)
+Stage 1 of the road work (main road spanning the parcel's long axis instead of a 3-point hub) landed cleanly. Entrance placement is the current open thread, picked up right after, and is **not done** — resuming here.
+
+**Done so far:**
+- Stage 1 main-road fix: `place_roads()`'s main road now runs entrance → centroid → farthest parcel-boundary vertex (was entrance → centroid → health post, which clustered all three waypoints near the centre and caused secondary roads to radiate from one point). Verified: secondary roads now attach at 4 distinct points along a 300–560 m backbone across three test shapes, fully connected, zero stranded nodes.
+- Robust Overpass handling in `src/site_search.py`: `_overpass()` retries up to 2x with 2s/4s backoff on timeouts and 5xx only (not 4xx — confirmed correct with a mocked test covering all four cases). A per-parcel `ss2_roads_cache` means a failed retry no longer destroys a previously-successful fetch for the same parcel. `site["roads_fetch_error"]` is threaded through so the failure reason survives past the site-search screen.
+- Layout-stage banner in `app.py`: prominent error banner when a run has no real road data (states plainly that the run is not a valid test of entrance/road placement), a milder note for the genuine "no roads nearby" case, and a one-line success caption when real road data loaded — visible before the map, no debug expander needed.
+- `_entry_point()` (src/layout_engine.py) rewritten: was snapping to the nearest *parcel vertex* across a flat pool of every point from every fetched road (so a road's stray node near a corner could win over a road actually running alongside the parcel, and even then could only ever return an existing corner). Rewrite picks the nearest *road* by full-geometry distance, then projects onto the parcel's exterior via `nearest_points` — no longer vertex-locked.
+
+**Open problem — entrance still lands at a corner, not on the real access road:**
+Confirmed on two separate real sites via diagnostic trace logging (kept in `_entry_point`, see below) that selecting the road by single-point distance is the wrong criterion: a road can win by merely touching or terminating near a corner (distance ≈ 0–1.3 m) while a genuinely-frontage road that runs alongside the parcel for hundreds of metres loses. Tried an "alongside-length within an 8 m buffer" measure as a diagnostic (length of a road's geometry that stays within 8 m of the parcel, rather than its single closest point) — on real data this measure correctly identifies the real frontage road in both test cases (one site: 532 m alongside vs. the loser's terminal-point proximity; another site: 245.1 m alongside vs. a tiny 58.8 m stub winning today on distance=0.0 m alone). **Not yet wired into the actual selection** — still diagnostic only.
+Even once the right road is selected, the projection step (`nearest_points`) still anchors to that road's single closest point along its full length, which can be a corner-proximate spot rather than the middle of the stretch where it actually runs alongside the parcel. Likely fix, not yet implemented: place the entrance at the midpoint of the alongside-stretch (the buffer-intersection piece), not the absolute nearest point.
+
+**Note:** temporary trace logging (`print("[_entry_point DEBUG] ...")`) is deliberately still present in `_entry_point`, marked in its docstring as "MUST BE REMOVED before this function is considered done." Left in across sessions on purpose so the next session can keep reading the trace without re-adding it — strip it once the alongside-length selection + midpoint projection fix lands and is confirmed live.
+
+- Roads connect but do not follow the full three-level hierarchy beyond Stage 1; gradient, orientation, drainage and site suitability remain future work.
 
 ## Date: 21 June 2026
 
