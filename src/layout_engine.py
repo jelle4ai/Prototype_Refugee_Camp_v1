@@ -1552,17 +1552,27 @@ def place_roads(site: dict,
     # tracked separately as "existing_roads" further down and are never
     # modified here.
     #
-    # The farthest-projected shelter (along the entrance -> original far
-    # vertex axis) identifies WHICH shelter marks the populated extent in
-    # that general direction, but the final far point re-aims straight at
-    # that specific shelter (not the original axis) before adding the
-    # margin -- the populated area is rarely exactly on-axis with the
-    # parcel's geometric far corner, and aiming at the actual shelter is
-    # what keeps the terminus close to it rather than merely closer.
-    _MAIN_ROAD_MARGIN_M = 35.0
-    _dir_dx, _dir_dy = far_x - ex, far_y - ey
-    _dir_len = (_dir_dx ** 2 + _dir_dy ** 2) ** 0.5 or 1.0
-    _dir_dx, _dir_dy = _dir_dx / _dir_len, _dir_dy / _dir_len
+    # PREVIOUS APPROACH (still visibly overshot on real irregular sites,
+    # e.g. Derkinkweg): picked the shelter with the farthest PROJECTION
+    # onto the entrance -> geometric-far-vertex axis, re-aimed at it, then
+    # capped travel distance using that ORIGINAL axis's length. On an
+    # irregular/concave parcel the boundary distance in the NEW (re-aimed)
+    # direction can be much shorter than the original axis's length, so the
+    # cap was simply wrong for the chosen direction -- confirmed directly:
+    # on a synthetic L-shaped parcel the computed far point landed outside
+    # the parcel entirely (-9.8, 117.0) and got silently clipped to wherever
+    # that ray happened to cross the boundary, with no real relationship to
+    # "margin past the target shelter". Projecting onto a single fixed axis
+    # to pick the target shelter also doesn't adapt to irregular populated-
+    # area shapes, which don't generally line up with any one axis.
+    #
+    # FIX: target the shelter that is farthest from the entrance by
+    # straight-line distance (not projected onto any axis -- direction-
+    # agnostic, adapts to whatever shape the populated area actually takes),
+    # then cap travel by the smaller of (a) the REAL parcel-boundary exit
+    # distance along that specific direction and (b) distance-to-target +
+    # a small margin -- never the stale length of an unrelated axis.
+    _MAIN_ROAD_MARGIN_M = 18.0
 
     _populated_pts = [
         (sum(p[0] for p in s["corners_m"]) / len(s["corners_m"]),
@@ -1570,13 +1580,22 @@ def place_roads(site: dict,
         for s in shelter_result.get("shelters", [])
     ]
     if _populated_pts:
-        _tx, _ty = max(_populated_pts,
-                       key=lambda p: (p[0] - ex) * _dir_dx + (p[1] - ey) * _dir_dy)
+        _tx, _ty = max(_populated_pts, key=lambda p: _dist2(p, (ex, ey)))
         _tdx, _tdy = _tx - ex, _ty - ey
         _tdist = (_tdx ** 2 + _tdy ** 2) ** 0.5
         if _tdist > 0.1:
             _tdx, _tdy = _tdx / _tdist, _tdy / _tdist
-            _far_dist = min(_dir_len, _tdist + _MAIN_ROAD_MARGIN_M)
+            # Real boundary distance along this specific direction, not the
+            # original (unrelated) axis's length.
+            _ray = _ShapelyLine([(ex, ey), (ex + _tdx * _tdist * 100,
+                                            ey + _tdy * _tdist * 100)])
+            _ray_clip = _ray.intersection(parcel)
+            if _ray_clip.geom_type == "LineString" and len(_ray_clip.coords) >= 2:
+                _bx, _by = _ray_clip.coords[-1]
+                _boundary_dist = ((_bx - ex) ** 2 + (_by - ey) ** 2) ** 0.5
+            else:
+                _boundary_dist = _tdist + _MAIN_ROAD_MARGIN_M  # fallback: no clipping
+            _far_dist = min(_boundary_dist, _tdist + _MAIN_ROAD_MARGIN_M)
             far_x, far_y = ex + _tdx * _far_dist, ey + _tdy * _far_dist
     # else: no shelters placed (e.g. R4 failure) -- fall back to the
     # geometric farthest vertex computed above; there is no populated extent
