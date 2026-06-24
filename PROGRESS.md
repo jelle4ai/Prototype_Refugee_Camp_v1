@@ -1,5 +1,190 @@
 # Progress Log
 
+## Date: 24 June 2026 (autonomous session, part 2 — refinement pass)
+
+## HANDOFF
+
+Second autonomous session of the day, picking up right after the previous
+handoff (`66bfc52`). Worked through Stages A-E in order; all five are
+either fully done or, where the brief allowed a diagnose-only outcome,
+genuinely diagnosed with evidence. Verification throughout was scripted
+Python tests (no browser) per session rules. Every commit below is green
+against the full regression suite.
+
+**Stage A — quality-weights audit (report only, no code change):**
+The weights live in a single named constant, `_WEIGHTS` in
+`src/scoring.py:51-61` — already clean, no scattered duplicates, so no
+"move into a named constant" commit was needed.
+
+| Component | Weight |
+|---|---|
+| shelter_distribution | 4 |
+| site_utilisation | 4 |
+| overlap_avoidance | 2 |
+| water_coverage | 1 |
+| sanitation_distribution | 1 |
+| school_accessibility | 1 |
+| road_connectivity | 1 |
+| entrance_quality | 1 |
+| expansion_buffer | 1 |
+
+Sum of weights = 16, max weighted score = 160, scaled to 0-100. This
+exactly matches what was reported live (Shelter Distribution x4, Site
+Utilisation x4, Overlap Avoidance x2, the rest x1) — no discrepancy
+between the live app and the code.
+
+Searched the whole repo (including `.venv` site-packages, to be
+thorough) for any Appendix E quality-weights reference document: **found
+none.** The only Appendix references anywhere in the repo are Appendix F
+(shelter/community module hierarchy — `src/layout_engine.py`,
+`test_community.py`, this file) and Appendix C (contextual requirements —
+`src/requirements_engine.py`). No thesis report, PDF, or other document
+exists locally to reconcile against. **This needs the actual thesis
+Appendix E brought into the repo (or pasted in) before any reconciliation
+is possible** — nothing was changed on a guess, per the brief.
+
+**Stage B — main road overshoot (DONE):** `029d1d6`
+Confirmed cause exactly as suspected: the generated main road's far end
+was the farthest parcel boundary VERTEX from the entrance, regardless of
+where shelters/communities actually ended up — on the test_stage4.py
+scenario B fixture this put the terminus 153.8 m from the nearest
+shelter. Fix re-aims the far end at whichever placed shelter extends
+furthest in the original entrance→far-vertex general direction, then
+stops a 35 m margin past that SPECIFIC shelter (not the original axis,
+which is rarely exactly aligned with where the camp spread) — 18.9 m on
+the same fixture, well inside the 30-40 m target. Falls back to the
+original far-vertex behaviour when no shelters exist (e.g. R4 failure).
+Entrance end untouched. Existing OSM roads were already tracked entirely
+separately from the generated main road (`existing_roads` vs
+`main_road`) — confirmed by inspection, no extra separation needed.
+Test: `test_main_road_trim.py` (terminus within margin, entrance
+unchanged, PA3 still passes, plus a sanity check that the old behaviour
+really would have failed this test).
+
+**Stage C — visible tertiary footpaths (DONE):** `53102df`
+Diagnosed why almost no footpaths were drawn (1 of 19 communities on the
+scenario B fixture): the obstacle-avoidance router (landed in the prior
+session) threads straight through communities' open spaces on its way
+across the site, so the "skip if road is already close" distance gate
+kept finding the network already near most communities. Two changes:
+1. The entry spur (road → community open space) is now always drawn,
+   skipped only when the open space is already within 1 m of the road.
+2. Added explicit spurs from the open space to the community's own
+   latrine blocks (split north/south per Appendix F). A flat average
+   position per side wasn't enough — a latrine stall that needed its own
+   ring-search fallback can land well away from the rest of its row (a
+   real, confirmed case: two communities had an outlier latrine missed
+   by the averaged target) — so each side is now reduced via a small
+   greedy `_cluster_targets()` helper (every latrine within 12 m of some
+   spur target) instead of one average.
+Also fixed a real bug in `test_road_overlap.py` itself while verifying
+this: its footpath check excluded only the single nearest obstacle to a
+segment's endpoint, which is wrong once a path can legitimately pass near
+several of its OWN community's elements — now excludes that community's
+full footprint set, the same way `place_roads()` itself does.
+Test: extended `test_road_overlap.py` (footpaths now asserted too) +
+new `test_footpath_coverage.py` (every community has ≥1 drawn segment,
+every latrine block reached within 15 m, PA3 still passes).
+
+**Stage D — schools clustering at one edge (DONE):** `ef8c21b`
+Diagnosed cleanly: `_grid_place()` (used for schools whenever count > 1)
+scanned grid cells row-major from the bottom-left of the parcel's
+bounding box and returned the instant `count` instances were placed —
+for low counts (schools is typically 1-3) every instance lands in the
+first 1-2 cells tried, all in the same corner. Confirmed by reverting the
+fix and re-running the same scenario: both schools landed at the same y
+(58.3) despite shelters spanning y from 15 to 296. Fix: try `count`
+evenly-spaced cell indices across the grid first, falling back to the
+remaining cells in original order if a spread-out cell is blocked — 2
+schools now land at opposite ends of the grid instead of adjacent cells
+in one corner. Only affects multi-instance placements (schools); the
+`administrative_area` fallback always uses count=1, confirmed unchanged
+(only two call sites exist for `_grid_place`).
+**Known limitation, not fixed:** schools are placed in
+`place_all_facilities()`, BEFORE shelters/communities exist, so this can
+only spread across the parcel's bounding box, not the eventual populated
+extent. Confirmed this still bites on the test_stage4.py scenario A
+stress fixture (700×400 m, only 2000pp, communities only filling the
+bottom third by height) — a spread-out cell can land in genuinely empty
+parcel there. A complete fix needs reordering the placement pipeline
+(schools after shelters), a bigger, riskier change touching CS5
+priority-order semantics — deliberately not attempted.
+Test: `test_schools_placement.py`, on a realistic fully-populated
+irregular parcel (512/500 shelters placed) where the limitation doesn't
+apply — asserts both schools land inside the populated region, aren't
+clustered at the same row, and ED3 still passes.
+
+**Stage E — 224/240 shelter / 56/60 toilet shortfall (DIAGNOSED + partial fix):** `16c3c3d`
+Deep-diagnosed via an instrumented trace (candidate-by-candidate, logged
+to PROGRESS via the commit message and reproduced in
+`test_community_retry.py`). Root cause: the candidate lattice in
+`place_shelters()` is built with **zero redundancy** — the 54×48 m pitch
+is the collision-proof MINIMUM spacing (derived from worst-case shelter-
+ring extent vs. a neighbour's open-space half-extent), so the lattice
+generates EXACTLY `n_communities` candidate points for `n_communities`
+required, never more. That means a single candidate lost to a CS5
+facility (typically much smaller than the 54×48 pitch — a school,
+community space, etc.) becomes a PERMANENT, unrecoverable shortfall, even
+when most of the parcel remains genuinely free. This is exactly what
+"67% free space, yet one community short" means: the free space is real,
+but the rigid lattice has no spare candidate to spend on it.
+
+Reproduced the EXACT reported numbers on a constructed fixture: a 320×180 m
+rectangle at population 1200 (5 cols × 3 rows = 15 candidates for 15
+required communities, zero slack), where two candidates' open spaces
+collide with CS5 facilities (schools, community_space) →
+**224/240 shelters, 56/60 toilets** — matching the live report exactly.
+
+Fix (partial, by design): when a candidate's open space hits a CS5
+facility, try a small set of nearby offsets (axis-aligned first, then
+diagonal, closest first) before giving up. Each offset is explicitly
+re-checked against BOTH the CS5 geometry and the already-placed-
+community geometry (`occ`) before being accepted — the original pitch's
+collision-proof guarantee only holds for candidates exactly ON the
+lattice, so this explicit check is a safety IMPROVEMENT, not a loosening
+(the open space's normal placement was never itself checked against
+`occ` — it relied entirely on the lattice spacing being provably safe).
+Refactored `_OPEN_CLR` into a shared module-level
+`_COMM_OPEN_CLEARANCE_M` constant so the retry's check and
+`_place_community`'s own placement stay in sync.
+
+On the reproduction fixture this recovers ONE of the two lost candidates
+(13/15 → 14/15 communities). The other genuinely has no safe nearby
+offset given its already-placed neighbours at that point in the scan
+order, and is correctly still reported as a shortfall — confirmed honest
+(`shortfall_communities == 1`, never silently dropped) and confirmed
+zero-overlap (0.0 m² across 313 footprints on the fixture).
+
+**This is NOT a complete fix.** A fully adaptive packer that never loses
+a genuinely-fittable candidate (e.g. trying many more offsets, or
+re-deriving the lattice per-band after a firebreak shift, or falling back
+to a finer-grained local search) would recover more cases but is a much
+larger change with more surface area to get wrong against the zero-
+overlap guarantee — deliberately not attempted this session. If the
+live 224/240 case still shows a shortfall after pulling this commit, the
+next step is to run the same instrumented-trace technique (see
+`test_community_retry.py` for the pattern) against the actual live
+parcel/population to see whether more candidates need recovering than
+this session's offset set can reach, and widen `_COMM_RETRY_OFFSETS` or
+add a second retry tier from there.
+
+Test: `test_community_retry.py` reproduces the scenario and asserts the
+recovery count, the honest remaining shortfall, and zero overlap.
+`test_shelter_placement.py` and `test_stage4.py` re-run clean (no
+regression).
+
+**Performance note (carried over, still true):** `test_move_facility.py`
+takes ~85s and `test_shelter_placement.py` ~20-25s, confirmed pre-existing
+(`_union_add`'s shapely `union()` calls), not a regression from this or
+the prior session's work — budget for it with a long-enough timeout when
+running the full suite.
+
+**Nothing left unaddressed from this session's brief** — Stages A-E were
+all worked in order, each diagnosed with evidence, and fixed where the
+brief's safety bar was met. Stage A is open pending the actual Appendix E
+document; Stage D and Stage E each have one clearly-scoped, clearly-
+labelled known limitation rather than a forced complete fix.
+
 ## Date: 24 June 2026 (autonomous session)
 
 ## HANDOFF
