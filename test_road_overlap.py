@@ -12,9 +12,8 @@ connecting TO (it necessarily starts there); it must not cut through any
 OTHER shelter or facility.
 
 Landed incrementally per road level (see PROGRESS.md Stage C): main road
-first, secondary and footpaths follow in later commits as their own
-obstacle-avoidance is wired in -- so only main_road is asserted here for
-now; extended in place, not duplicated, as each level lands.
+and secondary roads are wired in and asserted here; footpaths/tertiary
+paths follow in a later commit, extended in place rather than duplicated.
 
 Run from the project root:
     python test_road_overlap.py
@@ -110,8 +109,9 @@ def _check_segments(label, segs):
 
 
 all_ok &= _check_segments("main_road", roads["main_road"])
-# secondary_roads and footpaths obstacle-avoidance land in later commits;
-# asserted here once each is wired in (see PROGRESS.md Stage C).
+all_ok &= _check_segments("secondary_roads", roads["secondary_roads"])
+# footpaths/tertiary obstacle-avoidance lands in a later commit; asserted
+# here once wired in (see PROGRESS.md Stage C).
 
 print("=" * 60)
 if all_ok:

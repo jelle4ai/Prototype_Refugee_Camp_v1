@@ -26,6 +26,7 @@ from shapely.geometry import (Polygon as ShapelyPolygon,
                                LineString as _ShapelyLine,
                                Point as _ShapelyPoint)
 from shapely.ops import unary_union, nearest_points
+from shapely.prepared import prep
 import networkx as _nx
 
 
@@ -1334,7 +1335,8 @@ def _displace_from_obstacles(pt: tuple, obstacles: list,
 
 
 def _route_around(p1: tuple, p2: tuple, obstacles: list,
-                  corridor: float = 20.0, clearance: float = 1.5,
+                  corridor: float = 12.0, clearance: float = 1.5,
+                  max_obstacles: int = 8,
                   _forced: tuple = (), _depth: int = 0) -> list[tuple]:
     """
     Polyline from p1 to p2 that avoids *obstacles* (a list of ShapelyPolygons
@@ -1344,22 +1346,32 @@ def _route_around(p1: tuple, p2: tuple, obstacles: list,
 
     Only obstacles within *corridor* metres of the direct line (plus any
     already known to matter from a prior retry, via *_forced*) become graph
-    nodes, keeping the visibility graph small regardless of how many
-    shelters exist elsewhere on site. After finding a candidate path, it is
-    re-checked against every obstacle (not just the nearby ones) -- a detour
-    around one obstacle can pass close to a second one outside the original
-    corridor -- and retried with that obstacle folded in if so, up to 3
-    times.
+    nodes, capped to the *max_obstacles* nearest -- a wide corridor through
+    a dense shelter field would otherwise blow up the visibility graph
+    (O(nodes^2) edges, each checked against every relevant obstacle). After
+    finding a candidate path, it is re-checked against every obstacle (not
+    just the nearby ones) -- a detour around one obstacle can pass close to
+    a second one outside the original corridor -- and retried with that
+    obstacle folded in if so, up to 3 times.
     """
     direct = _ShapelyLine([p1, p2])
     forced_ids = {id(o) for o in _forced}
-    relevant = list(_forced) + [o for o in obstacles
-                                if id(o) not in forced_ids
-                                and o.intersects(direct.buffer(corridor))]
+    nearby = [o for o in obstacles
+             if id(o) not in forced_ids and o.intersects(direct.buffer(corridor))]
+    nearby.sort(key=lambda o: direct.distance(o))
+    relevant = list(_forced) + nearby[:max_obstacles]
     blocking = [o for o in relevant
                 if direct.intersects(o) and direct.intersection(o).length > 0.05]
     if not blocking:
         return [p1, p2]
+
+    prepared = [(o, prep(o)) for o in relevant]
+
+    def _blocked_by_any(seg) -> bool:
+        for o, pr in prepared:
+            if pr.intersects(seg) and seg.intersection(o).length > 0.05:
+                return True
+        return False
 
     nodes: dict[str, tuple] = {"_start": p1, "_end": p2}
     for k, ob in enumerate(relevant):
@@ -1375,8 +1387,7 @@ def _route_around(p1: tuple, p2: tuple, obstacles: list,
             a, b   = names[i], names[j]
             pa, pb = nodes[a], nodes[b]
             seg    = _ShapelyLine([pa, pb])
-            if any(seg.intersects(o) and seg.intersection(o).length > 0.05
-                   for o in relevant):
+            if _blocked_by_any(seg):
                 continue
             G.add_edge(a, b, weight=_dist2(pa, pb) ** 0.5)
 
@@ -1393,14 +1404,14 @@ def _route_around(p1: tuple, p2: tuple, obstacles: list,
              and route_line.intersects(o) and route_line.intersection(o).length > 0.05]
     if missed and _depth < 3:
         return _route_around(p1, p2, obstacles, corridor=corridor,
-                             clearance=clearance,
+                             clearance=clearance, max_obstacles=max_obstacles,
                              _forced=tuple(relevant) + tuple(missed),
                              _depth=_depth + 1)
     return path
 
 
 def _route_segment(parcel: ShapelyPolygon, p1: tuple, p2: tuple,
-                   obstacles: list, corridor: float = 20.0) -> list | None:
+                   obstacles: list, corridor: float = 12.0) -> list | None:
     """_route_around() + clip every leg of the result to the parcel."""
     routed = _route_around(p1, p2, obstacles, corridor=corridor)
     pts: list[tuple] = []
@@ -1498,30 +1509,31 @@ def place_roads(site: dict,
         main_segs = [{"pts_m": list(main_pts)}]
 
     # ── 2. Secondary roads: each major facility → nearest point on main road ──
-    _FAC_KEYS = [
-        "health_post", "water_points", "food_distribution",
-        "community_space", "administrative_area", "schools", "worship_facility",
-    ]
     secondary_segs: list[dict] = []
     fac_pts: dict[str, tuple] = {}
 
-    for key in _FAC_KEYS:
-        for idx, item in enumerate(facilities.get(key, [])):
-            c = item["corners_m"]
-            fcx = sum(p[0] for p in c) / len(c)
-            fcy = sum(p[1] for p in c) / len(c)
-            node_name = f"{key}_{idx}"
-            fac_pts[node_name] = (fcx, fcy)
-            if len(main_pts) >= 2:
-                cx_, cy_, _ = _nearest_on_polyline(main_pts, fcx, fcy)
-            else:
-                cx_, cy_ = main_pts[0]
-            if _dist2((fcx, fcy), (cx_, cy_)) > 4:
-                clipped = _clip_to_parcel(parcel, (fcx, fcy), (cx_, cy_))
-                if clipped:
-                    secondary_segs.append({"pts_m": clipped,
-                                           "_node": node_name,
-                                           "_conn": (cx_, cy_)})
+    for key, idx, fac_poly in all_facility_polys:
+        if key not in _FAC_KEYS:
+            continue   # toilets/washing_facilities: obstacles only, reached via tertiary paths
+        c = facilities[key][idx]["corners_m"]
+        fcx = sum(p[0] for p in c) / len(c)
+        fcy = sum(p[1] for p in c) / len(c)
+        node_name = f"{key}_{idx}"
+        fac_pts[node_name] = (fcx, fcy)
+        if len(main_pts) >= 2:
+            cx_, cy_, _ = _nearest_on_polyline(main_pts, fcx, fcy)
+        else:
+            cx_, cy_ = main_pts[0]
+        if _dist2((fcx, fcy), (cx_, cy_)) > 4:
+            # Exclude this facility's own footprint -- the connector
+            # necessarily starts inside it -- from the obstacles it must
+            # route around.
+            obstacles = [p for p in all_obstacles if p is not fac_poly]
+            routed = _route_segment(parcel, (fcx, fcy), (cx_, cy_), obstacles)
+            if routed:
+                secondary_segs.append({"pts_m": routed,
+                                       "_node": node_name,
+                                       "_conn": (cx_, cy_)})
 
     # ── 3. Footpaths: shelter bands → nearest road node ───────────────────────
     shelters = shelter_result.get("shelters", [])
