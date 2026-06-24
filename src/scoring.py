@@ -529,6 +529,67 @@ def _c5_school_quality(shelters, schools, requirements, parcel):
     )
 
 
+def _c6_equity(shelters, water_pts, latrines, health_posts, parcel):
+    """Component 6 (weight 3): P90 worst-served protection across water/sanitation/health.
+
+    Uses the 90th-percentile distance (worst 10% of shelters) rather than the single
+    worst shelter, making the score robust to genuine perimeter edge cases on irregular
+    parcels (Rawlsian basis: protect the worst-off group, not a statistical outlier).
+    Water threshold: 500 m (WS3). Sanitation: 50 m (SA3).
+    Health: site-relative (parcel half-diagonal), matching component 1.
+    """
+    if not shelters:
+        return 10, "No shelters (N/A)"
+
+    def _p90(dists):
+        s   = sorted(dists)
+        idx = int(0.9 * len(s))
+        return s[min(idx, len(s) - 1)]
+
+    sh_cens = [_centroid(s["corners_m"]) for s in shelters]
+
+    # Water
+    if not water_pts:
+        equity_water, p90_w = 0.0, float("inf")
+    else:
+        wp_cens = [_centroid(w["corners_m"]) for w in water_pts]
+        dists_w  = [min(_dist(sc, wc) for wc in wp_cens) for sc in sh_cens]
+        p90_w    = _p90(dists_w)
+        equity_water = max(0.0, 1.0 - p90_w / 500)
+
+    # Sanitation
+    if not latrines:
+        equity_sanitation, p90_l = 0.0, float("inf")
+    else:
+        lt_cens = [_centroid(l["corners_m"]) for l in latrines]
+        dists_l  = [min(_dist(sc, lc) for lc in lt_cens) for sc in sh_cens]
+        p90_l    = _p90(dists_l)
+        equity_sanitation = max(0.0, 1.0 - p90_l / 50)
+
+    # Health (site-relative threshold = parcel half-diagonal)
+    bx0, by0, bx1, by1 = parcel.bounds
+    half_diag = sqrt((bx1 - bx0) ** 2 + (by1 - by0) ** 2) / 2
+    if not health_posts:
+        equity_health, p90_h = 0.0, float("inf")
+    else:
+        hp_cens = [_centroid(h["corners_m"]) for h in health_posts]
+        dists_h  = [min(_dist(sc, hc) for hc in hp_cens) for sc in sh_cens]
+        p90_h    = _p90(dists_h)
+        equity_health = max(0.0, 1.0 - p90_h / max(1.0, half_diag))
+
+    mean_equity = (equity_water + equity_sanitation + equity_health) / 3
+    sub = max(0, min(10, round(mean_equity * 10)))
+    p90_w_str = f"{p90_w:.0f}" if p90_w != float("inf") else "inf"
+    p90_l_str = f"{p90_l:.0f}" if p90_l != float("inf") else "inf"
+    p90_h_str = f"{p90_h:.0f}" if p90_h != float("inf") else "inf"
+    return sub, (
+        f"P90 distances — water {p90_w_str} m (vs 500 m), "
+        f"latrines {p90_l_str} m (vs 50 m), "
+        f"health post {p90_h_str} m (vs {half_diag:.0f} m half-diag); "
+        f"equity score protects worst-served 10% (SA3/WS3/HE3)"
+    )
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Public scoring entry point
 # ─────────────────────────────────────────────────────────────────────────────
