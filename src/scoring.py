@@ -450,6 +450,27 @@ def _c2_water_quality(shelters, water_pts, parcel):
     )
 
 
+def _c3_food_distribution(shelters, food_dist_pts, parcel):
+    """Component 3 (weight 5): proximity to FD (site-relative, FD3) + capacity (FD4)."""
+    if not shelters:
+        return 10, "No shelters (N/A)"
+    if not food_dist_pts:
+        return 0, "No food distribution points placed"
+    fd_cens = [_centroid(f["corners_m"]) for f in food_dist_pts]
+    sh_cens = [_centroid(s["corners_m"]) for s in shelters]
+    avg_d   = sum(min(_dist(sc, fc) for fc in fd_cens) for sc in sh_cens) / len(sh_cens)
+    bx0, by0, bx1, by1 = parcel.bounds
+    diag = sqrt((bx1 - bx0) ** 2 + (by1 - by0) ** 2)
+    prox_score = max(0, round((1 - avg_d / max(1.0, diag)) * 10))
+    ratio    = len(shelters) / len(food_dist_pts)
+    cap_score = max(0, min(10, round((1 - max(0.0, ratio - 80) / 120) * 10)))
+    sub = max(0, min(10, round(0.7 * prox_score + 0.3 * cap_score)))
+    return sub, (
+        f"Avg shelter-FD distance {avg_d:.0f} m ({avg_d/max(1.0,diag)*100:.0f}% of "
+        f"site diagonal); {len(shelters)} shelters per {len(food_dist_pts)} point(s) (FD3/FD4)"
+    )
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Public scoring entry point
 # ─────────────────────────────────────────────────────────────────────────────
