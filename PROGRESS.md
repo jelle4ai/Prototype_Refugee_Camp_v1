@@ -1,5 +1,47 @@
 # Progress Log
 
+## Date: 25 June 2026 — HP placement fix + hint accuracy fixes
+
+### Stage 1 — Health post placement: target shelter centroid (COMPLETE)
+**Commit:** `e2e9102`
+
+**Root cause diagnosed:** The community lattice fills bottom-to-top (increasing y), so for small-to-medium camps the shelter centroid is in the **lower quarter** of the parcel — not at the parcel centroid and not entrance-dependent. The previous entrance-based bias (25% of entrance→centroid) was moving HP in the WRONG direction for south-entrance parcels (pushing HP to y=225 when shelter centroid is at y=76 on a 400×300 parcel).
+
+**Fix:** Replaced entrance-based bias with a population-aware parcel-fraction estimate:
+- Estimate number of community lattice rows needed: `fill_rows = min(n_rows, ceil(n_comm / n_cols))`
+- HP target y: `by0 + parcel_h * (fill_rows / (2.0 * n_rows))` — midpoint of the filled portion
+- Clamped to 15–65% of parcel height to keep HP off the edges
+- **Fallback for fully-packed parcels** (fill_rows = n_rows, large camps): revert to 25% entrance-based offset to avoid placing HP on the central community-lattice row (preserves 15/15 community placement on the tight 320×180 test fixture)
+
+**Before/after (400×300 m, 1200pp, south entrance):**
+- Before: HP at y=225 (old bias pushed wrong direction), shelter centroid y=76, distance=156m
+- After: HP at y=75, shelter centroid y=76, distance=47m
+- HP score: expected improvement from 4/10 → 8/10 on this scenario
+
+**Tests:** `test_hp_bias.py` — 6 tests (added `test_hp_in_lower_third_for_south_entrance` + `test_hp_closer_to_actual_shelter_centroid`). All pass. `test_community_retry.py` still 15/15 (fully-packed fallback preserved).
+
+---
+
+### Stage 2 — Fix latrine and water improvement hints (COMPLETE)
+**Commit:** `81fd76c`
+
+**Changes (hint text only — no score values changed):**
+
+**`_c4_latrine_quality`:**
+- Old: `"latrine blocks are too far from some shelters — ensure within 50m"` triggered by `comfort_score < 7`, which could fire even when label said "well spread" (a contradiction in the same explanation string).
+- New: Uses actual mean comfort margin (`mean_comfort:.1f m`) and "closer to the 50m limit than ideal" language — factual, not contradictory.
+- Added weighted-gap fallback for `both ≥ 7` case (was: vague "minor adjustment" — now identifies comfort vs spread binding constraint).
+
+**`_c2_water_quality`:**
+- Old: `"minor adjustment to water point positions"` (uninformative).
+- New: Computes `comfort_gap_w = 0.6*(10-comfort_score)` vs `spread_gap_w = 0.4*(10-spread_score)` and names the binding constraint with specific numbers (`{mean_comfort:.0f} m below 500m`, `{occ}/{valid} grid zones`).
+
+**Numeric scores unchanged:** all 9 component test files pass with identical results.
+
+**Compliance gate:** untouched — zero diff to `compliance_gate()`.
+
+---
+
 ## Date: 24 June 2026 — Scoring corrections + FD bug fix + explanation hints
 
 ### Session summary
