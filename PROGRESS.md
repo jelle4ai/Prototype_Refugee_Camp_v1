@@ -1,5 +1,284 @@
 # Progress Log
 
+## Date: 24 June 2026 — Quality scoring rewrite complete (Appendix E, all 9 components)
+
+## HANDOFF
+
+Quality scoring has been fully rewritten to match Appendix E. The compliance gate
+is byte-for-byte identical. The score will look numerically different from the old
+160-based system; this is expected and correct (new scale: weighted_sum / 340 * 100).
+
+**All 10 commits (Stages 1-9 + wiring), full regression suite green after each:**
+
+| Commit | Content |
+|---|---|
+| `416a027` | Stage 1: health_post_centrality (HE3 centrality, weight 7) |
+| `430943b` | Stage 2: water_quality (WS3 comfort margin + WS6 spread, weight 6) |
+| `71329c7` | Stage 3: food_distribution (FD3 site-relative proximity + FD4 capacity, weight 5) |
+| `701abd0` | Stage 4: latrine_quality (SA3 comfort margin + SA9 spread, weight 4) |
+| `a677df9` | Stage 5: school_quality (ED3 comfort margin + ED5 spread, weight 3) |
+| `8354a21` | Stage 6: equity (P90 worst-served across water/sanitation/health, weight 3) |
+| `4fc09d6` | Stage 7: spatial_quality (community completeness + open-space integrity, weight 3) |
+| `1b74a1b` | Stage 8: road_network (PA3 connectivity + PA4 footpaths + PA6 hierarchy, weight 2) |
+| `d030be0` | Stage 9: land_use (goldilocks curve peaking at 50% use, weight 1) |
+| `63b257b` | Wiring: old 9 components removed, new 9 wired into score_layout, max_weighted=340 |
+
+**Removed from quality score (compliance-gate items only):**
+- overlap_avoidance (x2) — already in compliance gate check 2
+- entrance_quality (x1) — PA3 moved to road_network; external roads = site property, not layout quality
+- expansion_buffer (x1) — no Appendix E equivalent
+
+**Implementation notes and flags for review:**
+
+1. **Health post (component 1, weight 7):** Scored as distance from health-post centroid to
+   shelter-cloud centroid, normalised by parcel half-diagonal. Scores 10 if HP is at the shelter
+   centroid; scores 0 if HP is a full half-diagonal away. No Sphere hard-distance threshold used
+   (correct per correction 1: HE3 is about centrality, not a fixed metre ceiling).
+
+2. **Food distribution (component 3, weight 5):** Proximity normalised against full parcel diagonal
+   (not half-diagonal), since food distribution serves the whole camp, not just one end. Capacity
+   (FD4): 80 shelters/point = 10; 200 shelters/point = 0, linear.
+
+3. **Equity (component 6, weight 3):** P90 (worst 10%) confirmed per correction 3. Health
+   sub-component uses parcel half-diagonal as threshold (site-relative, consistent with component 1).
+   If a facility type has no instances: equity_f = 0 for that facility (max score 7 with one missing).
+
+4. **PA6 (component 8, weight 2):** Scored as (1 if main_road else 0) + (1 if secondary_roads else 0),
+   grounded in confirmed definition: main road spanning site + secondary roads to facility zones.
+
+5. **Spatial quality (component 7, weight 3):** Open-space integrity normalised against 320 m^2
+   (16x20 m from Appendix F). A community with exactly the Appendix F open space scores 10/10
+   for that sub-component; missing open_corners scores 0/10.
+
+6. **Land use (component 9, weight 1):** Goldilocks curve: 0 at <= 5% use, 10 at 50%, 7 at 70%
+   (gentle density), 0 at 100% use.
+
+**Test coverage:** 9 new test files (test_scoring_c1_health_post.py through
+test_scoring_c9_land_use.py), each with >= 5 targeted assertions. Full regression suite (13
+existing test files) remained green after every commit. No existing test referenced old component
+names in assertions — only test_road_connectivity.py uses score_layout (total only, no component
+names), and it still passes.
+
+**Visual confirmation needed:** The score displayed in the app UI will now show the Appendix E
+components with their weights. No app.py changes were needed — the breakdown expander renders
+score["quality"]["components"] generically. Recommend spot-checking a generated layout to confirm
+the new breakdown looks correct in the browser.
+
+---
+
+## Date: 24 June 2026 — Stage 0: Quality scoring rewrite plan (Appendix E)
+
+## HANDOFF
+
+### Stage 0 approved with corrections — implementation starting Stage 1.
+
+**Approved corrections applied to formulas below:**
+1. Health post: centrality (dist HP→shelter centroid / half-diagonal), not 500 m ceiling (HE3 grounds this in centrality, not a fixed threshold).
+2. Food distribution proximity: normalise against parcel diagonal, not absolute 300 m.
+3. Equity, health sub-component: use dist-to-HP / (parcel_diagonal/2) as the site-relative health threshold in the P90 calculation (water 500 m and sanitation 50 m remain absolute Sphere thresholds). P90 confirmed correct.
+4. PA6 definition confirmed: "main road spanning site + secondary roads branching to all facility zones." Secondary-road presence scores PA6.
+5. Spatial/social quality: open-space integrity derived from Appendix F module (16×20 m = 320 m²) rather than an invented fraction. Score = mean(min(1, open_poly.area / 320)) × 10.
+6. Scaling confirmed: weights sum to 34, max weighted = 340, total = weighted_sum / 340 × 100. Score will look numerically different from old (160-based); this is expected and correct, not a regression.
+
+---
+
+### Current vs target: component-by-component mapping
+
+**Current weights:** sum = 16, max weighted = 160, scaled ÷ 160 × 100.
+**Target weights:**  sum = 34, max weighted = 340, scaled ÷ 340 × 100.
+
+| # | Current component | Weight | Target component (Appendix E) | Weight | Disposition |
+|---|---|---|---|---|---|
+| 1 | `shelter_distribution` | 4 | — | — | REMOVED from score; intent splits into Land use (9) and Spatial quality (7) |
+| 2 | `water_coverage` | 1 | Water points | 6 | REPLACED — same facility, new formula (comfort margin + spread instead of binary WS3) |
+| 3 | `sanitation_distribution` | 1 | Latrine and washing | 4 | REPLACED — same facility, new formula (comfort margin + spread) |
+| 4 | `school_accessibility` | 1 | Schools | 3 | REPLACED — same facility, new formula (comfort margin + spread) |
+| 5 | `road_connectivity` | 1 | Road network | 2 | REPLACED — connectivity kept (PA3), PA4/PA6 added |
+| 6 | `site_utilisation` | 4 | — | — | REMOVED from score; intent absorbed into Land use (9) |
+| 7 | `entrance_quality` | 1 | — | — | **REMOVED — compliance territory.** PA3 moves to component 8. External road/main road presence = hard constraint, not quality |
+| 8 | `overlap_avoidance` | 2 | — | — | **REMOVED — compliance gate already checks this** ("No footprint overlaps" check 2). Pure hard constraint |
+| 9 | `expansion_buffer` | 1 | — | — | **REMOVED — no Appendix E equivalent.** Not a compliance item either; simply dropped |
+| — | *(not scored)* | — | Health post | 7 | **NEW** |
+| — | *(not scored)* | — | Food distribution | 5 | **NEW** |
+| — | *(not scored)* | — | Equity of access | 3 | **NEW** |
+| — | *(not scored)* | — | Spatial/social quality | 3 | **NEW** |
+| — | *(not scored)* | — | Land use | 1 | **NEW** (absorbs intent of shelter_distribution + site_utilisation) |
+
+---
+
+### Removed components: rationale
+
+**`overlap_avoidance` (weight 2) → compliance gate only.**
+The compliance gate's check 2 ("No footprint overlaps, >1 m² tolerance") is identical. Scoring this again in quality would double-penalise what is already a hard disqualifier. The engine's geometry is constructed to produce zero overlap, so any non-zero score here on a valid layout would be dishonest.
+
+**`entrance_quality` (weight 1) → compliance gate territory.**
+Its three sub-points: (a) external roads present — a site property, not a quality of the layout; (b) main road links entrance — PA1 is required by construction, not a quality gradient; (c) network fully connected — this is exactly PA3, which moves to component 8. None of the three measures a quality gradient that Appendix E assigns to the quality score.
+
+**`expansion_buffer` (weight 1) → dropped.**
+No Appendix E component corresponds to "reserve free space". The compliance gate does not require it. "Sensible land use" in component 9 (Land use) covers the negative case (overcrowded/empty parcels) without rewarding an arbitrary reserved buffer.
+
+---
+
+### Nine target components: exact formulas
+
+#### 1. Health post — weight 7
+
+*"How central and accessible the health post is to all shelters."*
+
+- Collect health-post centroid(s). For each shelter centroid, compute `d_i = min distance to nearest health post`.
+- `avg_d = mean(d_i over all shelters)`.
+- Sub-score = `max(0, round((1 - avg_d / 500) * 10))`, clamped 0–10.
+  - 0 m average → 10/10. 500 m average → 0/10. Linear between.
+- If no health post placed: 0/10.
+- If no shelters: 10/10 (N/A).
+
+**Sphere basis:** No Sphere standard gives a walking-distance threshold for a primary health post within a camp. I use 500 m (same as WS3 water) as the reference ceiling — health access is at least as time-critical as water. **⚠ Flag for review: confirm whether the thesis Appendix E states a specific distance standard (e.g. HE3 or similar) that I should use instead.**
+
+---
+
+#### 2. Water points — weight 6
+
+*"How comfortably every shelter beats the 500 m maximum (WS3), and how evenly the points are spread (WS6)."*
+
+Two sub-scores:
+
+- **Comfort (60%):** for each shelter, `c_i = max(0, 500 − d_to_nearest_water)`. Mean over all shelters: `mean_c`. Comfort score = `mean_c / 500 * 10` (0–10).
+- **Spread (40%, WS6):** fraction of 3×3 grid zones (intersecting parcel) containing ≥1 water-point centroid. Spread score = `grid_fill × 10` (0–10).
+- Sub-score = `round(0.6 × comfort + 0.4 × spread)`, clamped 0–10.
+- If no shelters: 10. If no water points: 0.
+
+The 60/40 split weights genuine proximity over distribution, which matches "comfortably beats" wording coming first.
+
+---
+
+#### 3. Food distribution — weight 5
+
+*"Distance from shelters to the distribution point, and absence of crowding (FD3, FD4)."*
+
+Two sub-scores:
+
+- **Proximity (70%, interpreting FD3 as quality distance):** `avg_d = mean shelter distance to nearest food-distribution centroid`. Reference ceiling: 300 m (Sphere recommends accessible distribution points; no explicit distance in the standard — 300 m is a professional camp-planning reference for walkable access). Proximity score = `max(0, round((1 − avg_d / 300) * 10))`.
+- **Capacity balance (30%, FD4 — no crowding):** `ratio = n_shelters / n_food_dist_points`. Score: 10 if ratio ≤ 80; linear decay to 0 at ratio ≥ 200. Formula: `max(0, min(10, round((1 − max(0, ratio − 80) / 120) * 10)))`.
+- Sub-score = `round(0.7 × proximity + 0.3 × capacity)`, clamped 0–10.
+- If no food distribution points: 0.
+
+**⚠ Flag for review:** In `requirements_engine.py`, FD3 refers to *count* (1 point per N people), not distance. The Appendix E quality description says "distance from shelters to the distribution point" — so I am scoring distance here as a quality gradient above the count that the compliance gate already checks. Confirm this split is correct, and confirm whether 300 m or a different threshold appears in Appendix E.
+
+---
+
+#### 4. Latrine and washing blocks — weight 4
+
+*"How comfortably every shelter beats the 50 m maximum (SA3), and how well blocks are spread across shelter zones (SA9)."*
+
+Two sub-scores (same structure as water):
+
+- **Comfort (70%):** `c_i = max(0, 50 − d_to_nearest_latrine)`. Mean over shelters. Comfort score = `mean_c / 50 * 10`.
+- **Spread (30%, SA9):** standard deviation of latrine centroids, normalised by `parcel_diagonal × 0.20` (matches existing `_c3` implementation which was validated for this metric). Spread score = `min(1.0, std / max(1.0, diag × 0.20)) × 10`. Single latrine block: spread score = 2.
+- Sub-score = `round(0.7 × comfort + 0.3 × spread)`, clamped 0–10.
+- If no shelters: 10. If no latrines: 0.
+
+The 70/30 split weights genuine proximity over distribution (SA3 is the binding standard; SA9 is the quality add-on).
+
+---
+
+#### 5. Schools — weight 3
+
+*"How comfortably every shelter beats the 1,000 m maximum (ED3), and how evenly schools are spread (ED5)."*
+
+Two sub-scores:
+
+- **Comfort (60%):** `c_i = max(0, 1000 − d_to_nearest_school)`. Mean over shelters. Comfort score = `mean_c / 1000 * 10`.
+- **Spread (40%, ED5):** if ≥2 schools, fraction of 3×3 grid zones containing ≥1 school centroid (`grid_fill × 10`). If exactly 1 school: spread score = 5 (spread is impossible; halfway credit). If 0 schools placed: 0.
+- Sub-score = `round(0.6 × comfort + 0.4 × spread)`, clamped 0–10.
+- If schools not required (`count = 0`): 10 (N/A). If required but none placed: 0.
+
+---
+
+#### 6. Equity of access — weight 3
+
+*"How well the worst-served shelters are protected, not just the average, across life-critical facilities (water, sanitation, health)."*
+
+Three life-critical facilities with Sphere thresholds:
+
+| Facility | Threshold |
+|---|---|
+| Water points | 500 m (WS3) |
+| Latrines | 50 m (SA3) |
+| Health post | 500 m (same assumption as component 1) |
+
+For each facility `f`:
+1. Compute `d_f_i = min distance from shelter i to nearest facility of type f` for all shelters.
+2. `P90_f` = 90th-percentile of `{d_f_i}` (i.e., the worst 10% of shelters' nearest-facility distance).
+3. `equity_f = max(0.0, 1.0 − P90_f / threshold_f)`.
+
+Sub-score = `round(mean(equity_water, equity_sanitation, equity_health) × 10)`, clamped 0–10.
+
+**Reading:** if the worst 10% of shelters are still well inside their thresholds, equity = high. If they are at or beyond the threshold, equity = 0 for that facility.
+
+**⚠ Flag for review:** I chose **P90 (worst 10%)** rather than the single worst shelter to avoid over-sensitivity to genuine geometric edge cases (e.g. an isolated shelter at the parcel perimeter). If Appendix E intends a stricter definition — e.g. P95 or the single worst shelter — please confirm and I will adjust.
+
+If a facility type has no instances placed: `equity_f = 0` (the compliance gate would already flag the missing facility, but quality still degrades).
+
+---
+
+#### 7. Spatial and social quality — weight 3
+
+*"How well shelters form modular blocks with shared space, rather than a bare uniform grid."*
+
+This component uses the community structure that the layout engine already places: every 16-family community is a cluster with a shared 16×20 m open space (`open_corners`), latrines, and a water tap, grouped into reporting blocks of up to 16 communities.
+
+Two sub-scores:
+
+- **Community completeness (50%):** `required_comms = ceil(n_shelters_required / 16)`. `placed_comms = len(shelter_result["communities"])`. Completeness score = `min(10, round(placed_comms / max(1, required_comms) × 10))`. A shortfall (e.g. from a CS5 facility collision) reduces this score.
+- **Open-space integrity (50%):** For each placed community, `open_frac_i = Polygon(c["open_corners"]).area / c["community_poly"].area`. `mean_frac = mean(open_frac_i)`. Target ≥ 0.15 (15% of community footprint is shared open space). Open score = `min(10, round(mean_frac / 0.15 × 10))`.
+
+Sub-score = `round(0.5 × completeness_score + 0.5 × open_score)`, clamped 0–10.
+
+**⚠ Flag for review:** "modular blocks with shared space" is operationalised as (1) all communities placed successfully and (2) each community retains a non-trivial open-space fraction. The 0.15 target is an estimate from the engine's geometry (16×20 m open space inside a community convex hull of roughly 800–1 200 m²). If you want a different measure — e.g. the ratio of the block convex-hull area to total shelter footprint, or whether firebreak gaps are actually present — please say so.
+
+---
+
+#### 8. Road network — weight 2
+
+*"How fully the network connects every element, with no stranded facilities (PA3, PA4, PA6)."*
+
+Three PA standards scored together:
+
+- **PA3 — fully connected (5 pts):** `roads["connected"]` = True → 5 pts, False → 0 pts. One stranded node loses 2 pts; four or more strandeds → 0.
+  - Formula: `pa3_pts = max(0, 5 − min(5, len(roads.get("stranded", [])) × 2))`.
+- **PA4 — footpath coverage (3 pts):** Expected one footpath segment per community. `fp_ratio = min(1.0, n_footpaths / max(1, required_comms))`. `pa4_pts = round(fp_ratio × 3)`.
+- **PA6 — secondary road hierarchy (2 pts):** `n_secondary = len(roads.get("secondary_roads", []))`. At least one secondary road present → 1 pt; ≥ 3 secondary roads → 2 pts. `pa6_pts = min(2, n_secondary)` if n_secondary ≤ 2, else 2.
+
+Sub-score = `min(10, pa3_pts + pa4_pts + pa6_pts)`.
+
+**⚠ Flag for review:** PA6 is not defined in the codebase. I interpreted it as "secondary road hierarchy present" (PA2-level roads connecting facilities to the main road) because that is the next logical tier in the PA series (PA1 = main, PA2/PA4 = secondary/footpaths, PA6 = ?). If the thesis defines PA6 differently (e.g. road width compliance, drainage slope, or surface type), please provide the definition and I will adjust.
+
+---
+
+#### 9. Land use — weight 1
+
+*"The share of buildable area sensibly used rather than left empty or crowded."*
+
+- `used_area` = `unary_union(all shelter + facility polygons).area` (union, not sum, to avoid counting overlap twice).
+- `use_ratio = used_area / parcel.area`.
+- Score uses a piecewise linear "goldilocks" function:
+  - use_ratio ≤ 0.05: 0 (essentially empty)
+  - 0.05 → 0.50: linear 0 → 10 (more use = better)
+  - 0.50 → 0.80: linear 10 → 7 (slightly dense, mild penalty)
+  - 0.80 → 1.00: linear 7 → 0 (overcrowded)
+- Formula: see implementation; expressed as `_land_use_score(use_ratio)`.
+
+**Rationale:** camp layouts typically use 30–60% of buildable area (shelters + facilities, with roads and open space taking the rest). The peak at 50% rewards layouts that leave meaningful unbuilt area for roads, open space, and future expansion without being sparse. Layouts above 80% are overcrowded; below 5% are functionally empty.
+
+---
+
+### What this session does NOT touch
+
+- **Compliance gate** (`compliance_gate()`): all 8 checks, thresholds, and pass/fail logic remain byte-for-byte identical. This rewrite is quality-score-only.
+- Any Appendix B hard constraints. Overlap, spacing, connectivity, coverage minimums all stay in the gate.
+
+---
+
 ## Date: 24 June 2026 (autonomous session, part 4 — legend text, all maps)
 
 ## HANDOFF
