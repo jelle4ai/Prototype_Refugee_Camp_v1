@@ -61,19 +61,23 @@ def test_hp_biased_south_for_north_entrance():
     print(f"  PASS  North entrance: HP at y={hy:.1f} (centroid y=150, biased south)")
 
 
-def test_hp_biased_north_for_south_entrance():
-    """South entrance → HP should land north of parcel centroid (y > 150)."""
-    # Road runs along south edge y=0 → entrance on south boundary
+def test_hp_in_lower_third_for_south_entrance():
+    """South entrance → HP should land in the lower third (y < 120), near the shelter cluster.
+
+    The community lattice fills bottom-to-top, so shelters always cluster in
+    the lower portion regardless of entrance direction.  HP should target there,
+    not the parcel centroid or the far side from the entrance.
+    """
     site = _parcel_site(road=[(-50, 0), (450, 0)])
     fac  = place_all_facilities(site, _reqs())
     hp   = fac.get("health_post", [])
     assert hp and hp[0]["corners_m"], "HP must be placed"
     hx, hy = _centroid(hp[0]["corners_m"])
-    assert hy > 150, (
-        f"HP at y={hy:.1f} is NOT north of parcel centroid (150) "
-        f"— bias toward shelter cluster not working for south entrance"
+    assert hy < 120, (
+        f"HP at y={hy:.1f} is too high — should be in the lower third of the parcel "
+        f"(y < 120 for a 300 m tall parcel) to be near the shelter cluster"
     )
-    print(f"  PASS  South entrance: HP at y={hy:.1f} (centroid y=150, biased north)")
+    print(f"  PASS  South entrance: HP at y={hy:.1f} (lower third, near shelter cluster)")
 
 
 def test_hp_closer_to_shelter_side_than_centroid():
@@ -133,14 +137,55 @@ def test_hp_compliance_passes():
         print("  PASS  No HP compliance check found (hp_req may be 0 in this setup)")
 
 
+def test_hp_closer_to_actual_shelter_centroid():
+    """
+    Full layout: HP must end up closer to the shelter centroid
+    than the bare parcel centroid would be.
+    Uses south entrance (road at y=0). Shelters cluster north.
+    """
+    from src.layout_engine import place_shelters
+    import math
+
+    site = _parcel_site(road=[(-50, 0), (450, 0)])
+    reqs = _reqs(population=1200)
+    fac  = place_all_facilities(site, reqs)
+    shelter_result = place_shelters(site, reqs, fac.get("_occupied_geo"))
+    shelters = shelter_result.get("shelters", [])
+    assert shelters, "No shelters placed"
+
+    hp = fac.get("health_post", [])
+    assert hp and hp[0]["corners_m"], "HP not placed"
+
+    hx, hy = _centroid(hp[0]["corners_m"])
+    parcel_cx, parcel_cy = 200.0, 150.0  # centroid of 400x300 parcel
+
+    sh_cens = [_centroid(s["corners_m"]) for s in shelters]
+    shelt_cx = sum(p[0] for p in sh_cens) / len(sh_cens)
+    shelt_cy = sum(p[1] for p in sh_cens) / len(sh_cens)
+
+    dist_hp_to_shelt  = math.sqrt((hx - shelt_cx) ** 2 + (hy - shelt_cy) ** 2)
+    dist_cen_to_shelt = math.sqrt((parcel_cx - shelt_cx) ** 2 + (parcel_cy - shelt_cy) ** 2)
+
+    assert dist_hp_to_shelt < dist_cen_to_shelt, (
+        f"HP ({hx:.1f},{hy:.1f}) is {dist_hp_to_shelt:.1f} m from shelter centroid "
+        f"({shelt_cx:.1f},{shelt_cy:.1f}), NOT closer than bare parcel centroid "
+        f"({parcel_cx},{parcel_cy}) which is {dist_cen_to_shelt:.1f} m away."
+    )
+    print(
+        f"  PASS  HP ({hx:.1f},{hy:.1f}) is {dist_hp_to_shelt:.1f} m from shelter centroid "
+        f"vs parcel centroid {dist_cen_to_shelt:.1f} m away"
+    )
+
+
 if __name__ == "__main__":
     print("=" * 50)
     print("test_hp_bias.py")
     print("=" * 50)
     test_hp_biased_south_for_north_entrance()
-    test_hp_biased_north_for_south_entrance()
+    test_hp_in_lower_third_for_south_entrance()
     test_hp_closer_to_shelter_side_than_centroid()
     test_hp_placed_inside_parcel()
     test_hp_compliance_passes()
+    test_hp_closer_to_actual_shelter_centroid()
     print("=" * 50)
     print("ALL TESTS PASSED")

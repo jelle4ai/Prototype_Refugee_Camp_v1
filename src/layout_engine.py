@@ -567,21 +567,38 @@ def place_all_facilities(site: dict, requirements: dict) -> dict:
         out[key]    = items
         status[key] = {"placed": len(items), "required": required}
 
-    # ── 1. Health post — biased toward shelter cluster (away from entrance) ──────
-    # Shelters cluster on the side of the parcel opposite the entrance because
-    # the entrance side is occupied by the admin area and the main-road setback.
-    # Bias the HP target 25 % of the entrance→centroid distance further from the
-    # entrance so it sits closer to the eventual shelter centroid (direction is
-    # predictable even though shelter positions are not yet known).
+    # ── 1. Health post — placed near estimated shelter centroid (HE3) ────────────
+    # The community lattice always fills from the parcel bottom (min y) upward.
+    # For partially-filled parcels (small/medium camps) the shelter centroid is
+    # in the lower portion — well below the parcel centroid.  Estimate it from
+    # community count and lattice pitch (COMM_PITCH_X≈54 m, COMM_PITCH_Y≈48 m)
+    # and target HP there (HE3).
+    # For fully-packed parcels (large camps), the shelter centroid is near the
+    # parcel centroid; fall back to an entrance-based offset to avoid placing HP
+    # on the centre community-lattice row (which would displace a community).
     hp_w, hp_h = 15.0, 10.0
     hp_req     = _req("health_posts")
-    _edx, _edy = cx - ex, cy - ey
-    _elen = (_edx ** 2 + _edy ** 2) ** 0.5 or 1.0
     bx0, by0, bx1, by1 = parcel.bounds
-    _diag = ((bx1 - bx0) ** 2 + (by1 - by0) ** 2) ** 0.5
-    _bias = min(0.25 * _elen, 0.15 * _diag)
-    hp_tx = cx + _edx / _elen * _bias
-    hp_ty = cy + _edy / _elen * _bias
+    _parcel_h  = by1 - by0
+    _n_comm    = max(1, ceil(requirements.get("shelter_units", {}).get("count", 0) / 16))
+    _n_cols    = max(1, int((bx1 - bx0) / 54.0))
+    _n_rows    = max(1, int(_parcel_h / 48.0))
+    _fill_rows = min(_n_rows, ceil(_n_comm / _n_cols))
+    if _fill_rows < _n_rows:
+        # Partially filled: shelter centroid is in the lower fill_rows / n_rows
+        # fraction of the parcel.
+        _shelt_y = by0 + _parcel_h * (_fill_rows / (2.0 * _n_rows))
+        hp_tx    = cx
+        hp_ty    = max(by0 + _parcel_h * 0.15, min(by0 + _parcel_h * 0.65, _shelt_y))
+    else:
+        # Fully packed: shelter centroid ≈ parcel centroid; use entrance bias
+        # to nudge HP off the central community-lattice row.
+        _edx, _edy = cx - ex, cy - ey
+        _elen = (_edx ** 2 + _edy ** 2) ** 0.5 or 1.0
+        _diag = ((bx1 - bx0) ** 2 + _parcel_h ** 2) ** 0.5
+        _bias = min(0.25 * _elen, 0.15 * _diag)
+        hp_tx = cx + _edx / _elen * _bias
+        hp_ty = cy + _edy / _elen * _bias
     hp_corners = _nudge(parcel, hp_tx, hp_ty, hp_w, hp_h, step=4.0, max_rings=8, occupied=occ)
     if hp_corners is None:
         hp_corners = _nudge(parcel, cx, cy, hp_w, hp_h, step=4.0, max_rings=8, occupied=occ)
