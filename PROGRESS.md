@@ -1,5 +1,30 @@
 # Progress Log
 
+## Date: 25 June 2026 — Hamlet visual rebrand
+
+### Rebrand (COMPLETE)
+**Commit:** `5435bc7`
+
+**What changed (presentation-only):**
+- `.streamlit/config.toml` — new file; Streamlit theme tokens: primaryColor `#1F4788`, backgroundColor `#F4F1EA`, secondaryBackgroundColor `#EFEBE0`, textColor `#232323`
+- `src/brand.py` — new file; single source of truth for all brand CSS and header HTML:
+  - `_HAMLET_CSS`: Inter body font, Source Serif 4 headings (weight 500), indigo buttons with 8px radius, 8px input rounding, 16px card/metric radius, brand expanders, tables, captions, sidebar background, spinner colour, JSON/code block styling; quality score number uses Source Serif 4 (font only — inline `color=` attributes are NOT overridden so compliance/score colours stay safe)
+  - `_HAMLET_HEADER_HTML`: SVG Hamlet mark (indigo plots, terracotta centre) beside "Hamlet" wordmark in Source Serif 4 indigo + "Layouts planned around people" tagline in Inter muted
+  - `apply_brand()` — call once per render to inject CSS + Google Fonts
+  - `render_brand_header()` — renders the logo/wordmark header
+- `app.py` — import `apply_brand, render_brand_header`; `main()` calls `apply_brand()` first, then `render_brand_header()` replaces `st.title()`; page title updated to "Hamlet — Refugee Camp Layout"
+
+**To extend brand in future:** edit `src/brand.py` only — `_HAMLET_CSS` and `_HAMLET_HEADER_HTML`.
+
+**What was NOT touched:**
+- `src/scoring.py` — zero diff (confirmed `git diff 6dbd728..HEAD -- src/scoring.py`)
+- `src/layout_engine.py` — zero diff
+- Compliance colours `#2e7d32` / `#e65100` / `#c62828` in `app.py` — unchanged (inline style= attributes, CSS class rules cannot override them anyway)
+- Plotly map traces in `_layout_map()` — unchanged
+- `FACILITY_STYLE` in layout_engine.py — unchanged
+
+---
+
 ## Date: 25 June 2026 — HP placement fix + hint accuracy fixes
 
 ### Stage 1 — Health post placement: target shelter centroid (COMPLETE)
