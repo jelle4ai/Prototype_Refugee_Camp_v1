@@ -119,11 +119,32 @@ def test_single_fd_still_places_when_pop_tiny():
     print(f"  PASS  300pp -> 1 FD point (single-point path)")
 
 
+def test_multiple_fd_points_are_spread():
+    """Multiple FD points must be >50 m apart (grid placement, not HP-adjacent row)."""
+    site = _parcel_site(400, 300)
+    reqs = _reqs(1200)
+    fac  = place_all_facilities(site, reqs)
+    fd   = fac.get("food_distribution", [])
+    assert len(fd) >= 2, f"Expected >=2 FD points, got {len(fd)}"
+    cens = [_centroid(f["corners_m"]) for f in fd]
+    min_d = min(
+        _dist(cens[i], cens[j])
+        for i in range(len(cens))
+        for j in range(i + 1, len(cens))
+    )
+    assert min_d > 50, (
+        f"FD points not genuinely spread: closest pair only {min_d:.1f} m apart "
+        f"(expected >50 m from grid placement)"
+    )
+    print(f"  PASS  FD points spread: closest pair {min_d:.0f} m apart (>50 m)")
+
+
 if __name__ == "__main__":
     test_pop1200_places_multiple_fd_points()
     test_fd_points_not_clustered()
     test_compliance_gate_fd_still_passes()
     test_pop4000_places_up_to_6_fd_points()
     test_single_fd_still_places_when_pop_tiny()
+    test_multiple_fd_points_are_spread()
     print("=" * 50)
     print("ALL TESTS PASSED")
