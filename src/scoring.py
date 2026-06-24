@@ -430,6 +430,26 @@ def _c1_health_post_centrality(shelters, health_posts, parcel):
     )
 
 
+def _c2_water_quality(shelters, water_pts, parcel):
+    """Component 2 (weight 6): comfort margin below WS3 (500 m) + even spread (WS6)."""
+    if not shelters:
+        return 10, "No shelters (N/A)"
+    if not water_pts:
+        return 0, "No water points placed — WS3/WS6"
+    wp_cens = [_centroid(w["corners_m"]) for w in water_pts]
+    sh_cens = [_centroid(s["corners_m"]) for s in shelters]
+    dists   = [min(_dist(sc, wc) for wc in wp_cens) for sc in sh_cens]
+    mean_comfort  = sum(max(0.0, 500 - d) for d in dists) / len(dists)
+    comfort_score = mean_comfort / 500 * 10
+    gf, occ, valid = _compute_grid_fill(wp_cens, parcel)
+    spread_score   = gf * 10
+    sub = max(0, min(10, round(0.6 * comfort_score + 0.4 * spread_score)))
+    return sub, (
+        f"Mean comfort margin {mean_comfort:.0f} m below WS3 (500 m); "
+        f"water points in {occ}/{valid} grid zones (WS3/WS6)"
+    )
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Public scoring entry point
 # ─────────────────────────────────────────────────────────────────────────────
