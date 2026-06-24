@@ -502,6 +502,33 @@ def _c4_latrine_quality(shelters, latrines, parcel):
     )
 
 
+def _c5_school_quality(shelters, schools, requirements, parcel):
+    """Component 5 (weight 3): comfort margin below ED3 (1 000 m) + spread (ED5)."""
+    sc_req = requirements.get("schools", {}).get("count", 0)
+    if sc_req == 0:
+        return 10, "No schools required (ED3/ED5 N/A)"
+    if not schools:
+        return 0, f"{sc_req} school(s) required but none placed — ED3"
+    if not shelters:
+        return 10, "No shelters (N/A)"
+    sc_cens = [_centroid(s["corners_m"]) for s in schools]
+    sh_cens = [_centroid(s["corners_m"]) for s in shelters]
+    mean_comfort  = sum(max(0.0, 1000 - min(_dist(sc, cc) for cc in sc_cens))
+                        for sc in sh_cens) / len(sh_cens)
+    comfort_score = mean_comfort / 1000 * 10
+    if len(schools) == 1:
+        spread_score = 5
+        spread_note  = "1 school — spread N/A"
+    else:
+        gf, occ, valid = _compute_grid_fill(sc_cens, parcel)
+        spread_score   = gf * 10
+        spread_note    = f"{occ}/{valid} grid zones have a school"
+    sub = max(0, min(10, round(0.6 * comfort_score + 0.4 * spread_score)))
+    return sub, (
+        f"Mean ED3 comfort {mean_comfort:.0f} m margin; {spread_note} (ED3/ED5)"
+    )
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Public scoring entry point
 # ─────────────────────────────────────────────────────────────────────────────
