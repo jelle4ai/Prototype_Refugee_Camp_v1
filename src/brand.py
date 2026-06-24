@@ -1,13 +1,14 @@
 import streamlit as st
 
-# ── Google Fonts import + base Hamlet CSS ─────────────────────────────────────
+# Google Fonts loaded via @import inside the <style> block.
+# <link> elements can be stripped by Streamlit's HTML sanitizer; a single
+# <style> block is the reliable injection path for global CSS.
 _HAMLET_CSS = """
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-/* ── Hamlet brand — base typography ──────────────────── */
-html, body, [class*="css"], .stApp {
+@import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600&family=Inter:wght@400;500;600&display=swap');
+
+/* Base typography */
+html, body, .stApp, .main {
     font-family: 'Inter', system-ui, sans-serif !important;
 }
 h1, h2, h3, h4,
@@ -17,7 +18,7 @@ h1, h2, h3, h4,
     color: #232323;
 }
 
-/* ── Buttons ─────────────────────────────────────────── */
+/* Buttons */
 .stButton > button {
     background-color: #1F4788 !important;
     color: #F4F1EA !important;
@@ -37,7 +38,7 @@ h1, h2, h3, h4,
     outline-offset: 2px !important;
 }
 
-/* ── Inputs and text areas ───────────────────────────── */
+/* Inputs and text areas */
 .stTextInput > div > div > input,
 .stTextArea > div > div > textarea,
 .stSelectbox > div > div,
@@ -53,7 +54,7 @@ h1, h2, h3, h4,
     box-shadow: 0 0 0 2px rgba(31,71,136,0.15) !important;
 }
 
-/* ── Expanders ───────────────────────────────────────── */
+/* Expanders */
 .streamlit-expanderHeader {
     font-family: 'Inter', sans-serif !important;
     background-color: #EFEBE0 !important;
@@ -66,20 +67,25 @@ h1, h2, h3, h4,
     border-radius: 0 0 8px 8px !important;
     background-color: #F4F1EA !important;
 }
+div[data-testid="stExpander"] {
+    border-radius: 8px !important;
+    border: 1px solid #E0DACD !important;
+    overflow: hidden !important;
+}
 
-/* ── Sidebar ─────────────────────────────────────────── */
+/* Sidebar */
 section[data-testid="stSidebar"] {
     background-color: #EFEBE0 !important;
     border-right: 1px solid #E0DACD !important;
 }
 
-/* ── Captions and muted text ─────────────────────────── */
+/* Captions and muted text */
 .stCaption, small, .caption {
     color: #8A8579 !important;
     font-family: 'Inter', sans-serif !important;
 }
 
-/* ── Tables ──────────────────────────────────────────── */
+/* Tables */
 .stTable table {
     border-collapse: collapse !important;
     font-family: 'Inter', sans-serif !important;
@@ -96,37 +102,40 @@ section[data-testid="stSidebar"] {
     color: #232323 !important;
 }
 
-/* ── Notification boxes — brand rounding, keep Streamlit's own
-      semantic colours for st.success / st.error / st.warning. ── */
+/* Notification boxes — brand rounding only, keep Streamlit semantic colours */
 div[data-baseweb="notification"] {
     border-radius: 8px !important;
     font-family: 'Inter', sans-serif !important;
 }
 
-/* ── Divider hairline ────────────────────────────────── */
+/* Divider hairline */
 hr {
     border-color: #E0DACD !important;
     border-width: 1px 0 0 0 !important;
 }
 
-/* ── Hide Streamlit chrome for presentation cleanliness ── */
+/* Streamlit top header bar */
+header[data-testid="stHeader"] {
+    background-color: #F4F1EA !important;
+}
+
+/* Hide Streamlit chrome for presentation */
 #MainMenu { visibility: hidden; }
 footer    { visibility: hidden; }
-header[data-testid="stHeader"] { background-color: #F4F1EA !important; }
 
-/* ── Score breakdown container ───────────────────────── */
+/* Score breakdown container */
 div[data-testid="stExpander"] {
     border-radius: 8px !important;
     border: 1px solid #E0DACD !important;
     overflow: hidden !important;
 }
 
-/* ── Spinner ─────────────────────────────────────────── */
+/* Spinner */
 .stSpinner > div {
     border-top-color: #1F4788 !important;
 }
 
-/* ── Metric widgets ──────────────────────────────────── */
+/* Metric widgets */
 [data-testid="metric-container"] {
     background-color: #EFEBE0 !important;
     border: 1px solid #E0DACD !important;
@@ -134,7 +143,7 @@ div[data-testid="stExpander"] {
     padding: 1rem !important;
 }
 
-/* ── Code / JSON blocks ──────────────────────────────── */
+/* Code / JSON blocks */
 .stCodeBlock, pre, code {
     font-family: 'JetBrains Mono', 'Fira Code', monospace !important;
     background-color: #EFEBE0 !important;
@@ -143,20 +152,7 @@ div[data-testid="stExpander"] {
     color: #232323 !important;
 }
 
-/* ── Quality score number — improve font only, NOT colour.
-      Inline style="color:..." attributes on the div are NOT
-      overridden by class-based rules, so compliance colours
-      (#2e7d32 / #e65100 / #c62828) stay exactly as coded.  ── */
-div[style*="font-size:2.2rem"] {
-    font-family: 'Source Serif 4', Georgia, serif !important;
-}
-
-/* ── Main content block padding ─────────────────────── */
-.block-container {
-    padding-top: 1rem !important;
-}
-
-/* ── Tabs (if used) ──────────────────────────────────── */
+/* Tabs */
 .stTabs [data-baseweb="tab-list"] {
     background-color: #EFEBE0 !important;
     border-radius: 8px !important;
@@ -171,10 +167,15 @@ div[style*="font-size:2.2rem"] {
     background-color: #1F4788 !important;
     color: #F4F1EA !important;
 }
+
+/* Main content block padding */
+.block-container {
+    padding-top: 1rem !important;
+}
 </style>
 """
 
-# ── Brand header HTML ──────────────────────────────────────────────────────────
+# Brand header HTML
 _HAMLET_HEADER_HTML = """
 <div style="
   display: flex;
