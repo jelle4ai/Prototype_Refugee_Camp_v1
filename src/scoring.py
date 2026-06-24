@@ -406,6 +406,31 @@ def _c9_expansion_buffer(shelters, facilities, parcel, sh_gf):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Appendix E quality components (new — not yet wired into score_layout)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _c1_health_post_centrality(shelters, health_posts, parcel):
+    """Component 1 (weight 7): how central the health post is to all shelters (HE3)."""
+    if not shelters:
+        return 10, "No shelters placed (N/A)"
+    if not health_posts:
+        return 0, "No health post placed — HE3"
+    sh_cens = [_centroid(s["corners_m"]) for s in shelters]
+    shelter_cx = sum(p[0] for p in sh_cens) / len(sh_cens)
+    shelter_cy = sum(p[1] for p in sh_cens) / len(sh_cens)
+    hp_cens = [_centroid(h["corners_m"]) for h in health_posts]
+    hp_dist = min(_dist((shelter_cx, shelter_cy), hc) for hc in hp_cens)
+    bx0, by0, bx1, by1 = parcel.bounds
+    half_diag = sqrt((bx1 - bx0) ** 2 + (by1 - by0) ** 2) / 2
+    score = max(0, round((1 - hp_dist / max(1.0, half_diag)) * 10))
+    label = "central" if score >= 8 else "moderate" if score >= 5 else "peripheral"
+    return score, (
+        f"Health post {hp_dist:.0f} m from shelter centroid "
+        f"(half-diagonal {half_diag:.0f} m) — {label} (HE3)"
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Public scoring entry point
 # ─────────────────────────────────────────────────────────────────────────────
 
