@@ -342,7 +342,7 @@ def _c4_latrine_quality(shelters, latrines, parcel):
 
 
 def _c5_school_quality(shelters, schools, requirements, parcel):
-    """Component 5 (weight 3): comfort margin below ED3 (1 000 m) + spread (ED5)."""
+    """Component 5 (weight 3): capacity adequacy (ED1) + comfort margin (ED3) + separation (ED5)."""
     sc_req = requirements.get("schools", {}).get("count", 0)
     if sc_req == 0:
         return 10, "No schools required (ED3/ED5 N/A)"
@@ -352,19 +352,25 @@ def _c5_school_quality(shelters, schools, requirements, parcel):
         return 10, "No shelters (N/A)"
     sc_cens = [_centroid(s["corners_m"]) for s in schools]
     sh_cens = [_centroid(s["corners_m"]) for s in shelters]
+    cap_score = min(10, round(len(schools) / max(1, sc_req) * 10))
     mean_comfort  = sum(max(0.0, 1000 - min(_dist(sc, cc) for cc in sc_cens))
                         for sc in sh_cens) / len(sh_cens)
     comfort_score = mean_comfort / 1000 * 10
     if len(schools) == 1:
-        spread_score = 5
-        spread_note  = "1 school — spread N/A"
+        sep_score     = 10
+        min_pair_dist = None
+        sep_note      = "1 school"
     else:
-        gf, occ, valid = _compute_grid_fill(sc_cens, parcel)
-        spread_score   = gf * 10
-        spread_note    = f"{occ}/{valid} grid zones have a school"
-    sub = max(0, min(10, round(0.6 * comfort_score + 0.4 * spread_score)))
+        min_pair_dist = min(_dist(a, b)
+                            for i, a in enumerate(sc_cens)
+                            for j, b in enumerate(sc_cens)
+                            if j > i)
+        sep_score = min(10, round(min_pair_dist / 200 * 10))
+        sep_note  = f"min pair dist {min_pair_dist:.0f} m"
+    sub = max(0, min(10, round(0.50 * cap_score + 0.35 * comfort_score + 0.15 * sep_score)))
     return sub, (
-        f"Mean ED3 comfort {mean_comfort:.0f} m margin; {spread_note} (ED3/ED5)"
+        f"Capacity {len(schools)}/{sc_req} schools; mean ED3 comfort {mean_comfort:.0f} m; "
+        f"{sep_note} (ED1/ED3/ED5)"
     )
 
 
