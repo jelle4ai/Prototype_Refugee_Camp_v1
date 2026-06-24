@@ -293,7 +293,20 @@ def _c2_water_quality(shelters, water_pts, parcel):
         elif spread_score < 7:
             hint = " To improve: distribute water points more evenly across the camp (WS6)."
         else:
-            hint = " To improve: minor adjustment to water point positions."
+            comfort_gap_w = 0.6 * (10.0 - comfort_score)
+            spread_gap_w  = 0.4 * (10.0 - spread_score)
+            if comfort_gap_w >= spread_gap_w:
+                hint = (
+                    f" To improve: increase the mean comfort margin "
+                    f"(currently {mean_comfort:.0f} m below 500 m threshold) "
+                    f"by moving water points closer to outlier shelters (WS3)."
+                )
+            else:
+                hint = (
+                    f" To improve: improve water point spread — "
+                    f"currently {occ}/{valid} grid zones covered; "
+                    f"adding coverage to underserved zones would help (WS6)."
+                )
     return sub, (
         f"Mean comfort margin {mean_comfort:.0f} m below WS3 (500 m); "
         f"water points in {occ}/{valid} grid zones (WS3/WS6){hint}"
@@ -358,11 +371,23 @@ def _c4_latrine_quality(shelters, latrines, parcel):
     hint = ""
     if sub < 10:
         if comfort_score < 7:
-            hint = " To improve: latrine blocks are too far from some shelters — ensure latrines are within 50 m (SA3)."
+            hint = (
+                f" To improve: mean SA3 comfort margin is {mean_comfort:.1f} m "
+                f"(closer to the 50 m limit than ideal); moving latrine blocks nearer "
+                f"to outlier shelters would raise this (SA3)."
+            )
         elif spread_score < 7:
             hint = " To improve: spread latrine blocks more evenly across shelter zones (SA9)."
         else:
-            hint = " To improve: minor adjustment to latrine placement."
+            comfort_gap_w = 0.7 * (10.0 - comfort_score)
+            spread_gap_w  = 0.3 * (10.0 - spread_score)
+            if comfort_gap_w >= spread_gap_w:
+                hint = (
+                    f" To improve: increase the mean SA3 comfort margin "
+                    f"(currently {mean_comfort:.1f} m) by tightening latrine placement."
+                )
+            else:
+                hint = " To improve: spread latrine blocks slightly more evenly (SA9)."
     return sub, (
         f"Mean SA3 comfort {mean_comfort:.1f} m margin; latrines {label} (SA3/SA9){hint}"
     )
