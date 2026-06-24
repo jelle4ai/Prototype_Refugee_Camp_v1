@@ -7,9 +7,10 @@ _HAMLET_CSS = """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600&family=Inter:wght@400;500;600&display=swap');
 
-/* Base typography */
+/* Base typography — page background is Bone-2 (#EFEBE0), cards lift to Bone (#F4F1EA) */
 html, body, .stApp, .main {
     font-family: 'Inter', system-ui, sans-serif !important;
+    background-color: #EFEBE0 !important;
 }
 h1, h2, h3, h4,
 .stMarkdown h1, .stMarkdown h2, .stMarkdown h3 {
@@ -54,10 +55,10 @@ h1, h2, h3, h4,
     box-shadow: 0 0 0 2px rgba(31,71,136,0.15) !important;
 }
 
-/* Expanders */
+/* Expanders — card surface (#F4F1EA) lifts off page (#EFEBE0) */
 .streamlit-expanderHeader {
     font-family: 'Inter', sans-serif !important;
-    background-color: #EFEBE0 !important;
+    background-color: #F4F1EA !important;
     border-radius: 8px !important;
     border: 1px solid #E0DACD !important;
 }
@@ -71,11 +72,13 @@ div[data-testid="stExpander"] {
     border-radius: 8px !important;
     border: 1px solid #E0DACD !important;
     overflow: hidden !important;
+    background-color: #F4F1EA !important;
+    box-shadow: 0 1px 3px rgba(35,35,35,0.06) !important;
 }
 
-/* Sidebar */
+/* Sidebar — card surface, slightly lighter than page */
 section[data-testid="stSidebar"] {
-    background-color: #EFEBE0 !important;
+    background-color: #F4F1EA !important;
     border-right: 1px solid #E0DACD !important;
 }
 
@@ -85,11 +88,13 @@ section[data-testid="stSidebar"] {
     font-family: 'Inter', sans-serif !important;
 }
 
-/* Tables */
+/* Tables — card surface with soft shadow */
 .stTable table {
     border-collapse: collapse !important;
     font-family: 'Inter', sans-serif !important;
     font-size: 0.875rem !important;
+    background-color: #F4F1EA !important;
+    box-shadow: 0 1px 3px rgba(35,35,35,0.06) !important;
 }
 .stTable table th {
     background-color: #EFEBE0 !important;
@@ -114,9 +119,9 @@ hr {
     border-width: 1px 0 0 0 !important;
 }
 
-/* Streamlit top header bar */
+/* Streamlit top header bar — matches page background */
 header[data-testid="stHeader"] {
-    background-color: #F4F1EA !important;
+    background-color: #EFEBE0 !important;
 }
 
 /* Hide Streamlit chrome for presentation */
@@ -135,26 +140,27 @@ div[data-testid="stExpander"] {
     border-top-color: #1F4788 !important;
 }
 
-/* Metric widgets */
+/* Metric widgets — card surface with soft shadow */
 [data-testid="metric-container"] {
-    background-color: #EFEBE0 !important;
+    background-color: #F4F1EA !important;
     border: 1px solid #E0DACD !important;
     border-radius: 16px !important;
     padding: 1rem !important;
+    box-shadow: 0 1px 3px rgba(35,35,35,0.06) !important;
 }
 
-/* Code / JSON blocks */
+/* Code / JSON blocks — card surface */
 .stCodeBlock, pre, code {
     font-family: 'JetBrains Mono', 'Fira Code', monospace !important;
-    background-color: #EFEBE0 !important;
+    background-color: #F4F1EA !important;
     border: 1px solid #E0DACD !important;
     border-radius: 8px !important;
     color: #232323 !important;
 }
 
-/* Tabs */
+/* Tabs — card surface for tab strip */
 .stTabs [data-baseweb="tab-list"] {
-    background-color: #EFEBE0 !important;
+    background-color: #F4F1EA !important;
     border-radius: 8px !important;
     padding: 4px !important;
     border: 1px solid #E0DACD !important;
