@@ -263,9 +263,12 @@ def _c1_health_post_centrality(shelters, health_posts, parcel):
     half_diag = sqrt((bx1 - bx0) ** 2 + (by1 - by0) ** 2) / 2
     score = max(0, round((1 - hp_dist / max(1.0, half_diag)) * 10))
     label = "central" if score >= 8 else "moderate" if score >= 5 else "peripheral"
+    hint = ""
+    if score < 10:
+        hint = f" To improve: reduce the {hp_dist:.0f} m offset toward the shelter centroid (HE3)."
     return score, (
         f"Health post {hp_dist:.0f} m from shelter centroid "
-        f"(half-diagonal {half_diag:.0f} m) — {label} (HE3)"
+        f"(half-diagonal {half_diag:.0f} m) — {label} (HE3){hint}"
     )
 
 
@@ -283,9 +286,17 @@ def _c2_water_quality(shelters, water_pts, parcel):
     gf, occ, valid = _compute_grid_fill(wp_cens, parcel)
     spread_score   = gf * 10
     sub = max(0, min(10, round(0.6 * comfort_score + 0.4 * spread_score)))
+    hint = ""
+    if sub < 10:
+        if comfort_score < 7:
+            hint = " To improve: move water points closer to the shelter cluster."
+        elif spread_score < 7:
+            hint = " To improve: distribute water points more evenly across the camp (WS6)."
+        else:
+            hint = " To improve: minor adjustment to water point positions."
     return sub, (
         f"Mean comfort margin {mean_comfort:.0f} m below WS3 (500 m); "
-        f"water points in {occ}/{valid} grid zones (WS3/WS6)"
+        f"water points in {occ}/{valid} grid zones (WS3/WS6){hint}"
     )
 
 
@@ -304,9 +315,17 @@ def _c3_food_distribution(shelters, food_dist_pts, parcel):
     ratio    = len(shelters) / len(food_dist_pts)
     cap_score = max(0, min(10, round((1 - max(0.0, ratio - 80) / 120) * 10)))
     sub = max(0, min(10, round(0.7 * prox_score + 0.3 * cap_score)))
+    hint = ""
+    if sub < 10:
+        if prox_score < 7:
+            hint = " To improve: move food distribution point(s) closer to the shelter centroid (FD3)."
+        elif cap_score < 7:
+            hint = f" To improve: the camp needs more food distribution points to reduce crowding (FD4: {ratio:.0f} shelters/point)."
+        else:
+            hint = " To improve: minor adjustment to food distribution placement."
     return sub, (
         f"Avg shelter-FD distance {avg_d:.0f} m ({avg_d/max(1.0,diag)*100:.0f}% of "
-        f"site diagonal); {len(shelters)} shelters per {len(food_dist_pts)} point(s) (FD3/FD4)"
+        f"site diagonal); {len(shelters)} shelters per {len(food_dist_pts)} point(s) (FD3/FD4){hint}"
     )
 
 
@@ -336,8 +355,16 @@ def _c4_latrine_quality(shelters, latrines, parcel):
     sub = max(0, min(10, round(0.7 * comfort_score + 0.3 * spread_score)))
     label = ("well spread" if spread_score >= 7
              else "loosely spread" if spread_score >= 4 else "clustered")
+    hint = ""
+    if sub < 10:
+        if comfort_score < 7:
+            hint = " To improve: latrine blocks are too far from some shelters — ensure latrines are within 50 m (SA3)."
+        elif spread_score < 7:
+            hint = " To improve: spread latrine blocks more evenly across shelter zones (SA9)."
+        else:
+            hint = " To improve: minor adjustment to latrine placement."
     return sub, (
-        f"Mean SA3 comfort {mean_comfort:.1f} m margin; latrines {label} (SA3/SA9)"
+        f"Mean SA3 comfort {mean_comfort:.1f} m margin; latrines {label} (SA3/SA9){hint}"
     )
 
 
@@ -368,9 +395,19 @@ def _c5_school_quality(shelters, schools, requirements, parcel):
         sep_score = min(10, round(min_pair_dist / 200 * 10))
         sep_note  = f"min pair dist {min_pair_dist:.0f} m"
     sub = max(0, min(10, round(0.50 * cap_score + 0.35 * comfort_score + 0.15 * sep_score)))
+    hint = ""
+    if sub < 10:
+        if cap_score < 10:
+            hint = f" To improve: {sc_req - len(schools)} more school(s) needed for the school-age population (ED1)."
+        elif comfort_score < 7:
+            hint = f" To improve: move schools closer to shelters — mean distance is {1000 - mean_comfort:.0f} m from the 1,000 m threshold (ED3)."
+        elif sep_score < 7 and len(schools) > 1 and min_pair_dist is not None:
+            hint = f" To improve: schools are only {min_pair_dist:.0f} m apart — spreading them further would improve coverage (ED5)."
+        else:
+            hint = " To improve: minor adjustment to school placement."
     return sub, (
         f"Capacity {len(schools)}/{sc_req} schools; mean ED3 comfort {mean_comfort:.0f} m; "
-        f"{sep_note} (ED1/ED3/ED5)"
+        f"{sep_note} (ED1/ED3/ED5){hint}"
     )
 
 
@@ -427,11 +464,22 @@ def _c6_equity(shelters, water_pts, latrines, health_posts, parcel):
     p90_w_str = f"{p90_w:.0f}" if p90_w != float("inf") else "inf"
     p90_l_str = f"{p90_l:.0f}" if p90_l != float("inf") else "inf"
     p90_h_str = f"{p90_h:.0f}" if p90_h != float("inf") else "inf"
+    hint = ""
+    if sub < 10:
+        if equity_water <= equity_sanitation and equity_water <= equity_health:
+            hint = (f" To improve: the worst-served 10% of shelters are {p90_w_str} m from a water point;"
+                    f" better water coverage for outlier shelters would help (WS3).")
+        elif equity_sanitation <= equity_health:
+            hint = (f" To improve: the worst-served 10% of shelters are {p90_l_str} m from a latrine;"
+                    f" closing the SA3 margin for outlier shelters would help.")
+        else:
+            hint = (f" To improve: the worst-served 10% of shelters are {p90_h_str} m from the health post;"
+                    f" a more central health post position would help (HE3).")
     return sub, (
         f"P90 distances — water {p90_w_str} m (vs 500 m), "
         f"latrines {p90_l_str} m (vs 50 m), "
         f"health post {p90_h_str} m (vs {half_diag:.0f} m half-diag); "
-        f"equity score protects worst-served 10% (SA3/WS3/HE3)"
+        f"equity score protects worst-served 10% (SA3/WS3/HE3){hint}"
     )
 
 
@@ -465,9 +513,17 @@ def _c7_spatial_quality(shelter_result, parcel):
     mean_adequacy = sum(open_adequacies) / len(open_adequacies)
     open_score    = round(mean_adequacy * 10)
     sub = max(0, min(10, round(0.5 * completeness_score + 0.5 * open_score)))
+    hint = ""
+    if sub < 10:
+        if completeness_score < open_score:
+            hint = (f" To improve: {n_required_comms - placed_comms} community module(s) could not be placed;"
+                    f" resolving facility conflicts in the layout engine would help.")
+        else:
+            hint = (f" To improve: community open spaces are smaller than the Appendix F standard"
+                    f" (16×20 m = 320 m^2); actual mean {mean_adequacy*320:.0f} m^2.")
     return sub, (
         f"{placed_comms}/{n_required_comms} communities placed; "
-        f"mean open-space {mean_adequacy*320:.0f}/{320} m^2 per community (Appendix F)"
+        f"mean open-space {mean_adequacy*320:.0f}/{320} m^2 per community (Appendix F){hint}"
     )
 
 
@@ -493,10 +549,20 @@ def _c8_road_network(roads, shelter_result):
     main_road = roads.get("main_road", [])
     pa6_pts   = (1 if main_road else 0) + (1 if len(secondary) >= 1 else 0)
     sub = min(10, pa3_pts + pa4_pts + pa6_pts)
+    hint = ""
+    if sub < 10:
+        if pa3_pts < 5:
+            hint = f" To improve: {len(stranded)} stranded node(s) in the road network — all paths must connect (PA3)."
+        elif pa4_pts < 3:
+            hint = (f" To improve: footpath coverage is low ({len(footpaths)} segments for"
+                    f" {required_comms} communities) — each community needs a footpath link (PA4).")
+        elif pa6_pts < 2:
+            missing = "main road absent" if not main_road else "secondary roads absent"
+            hint = f" To improve: {missing} — the road hierarchy needs main + secondary roads (PA6)."
     return sub, (
         f"PA3: {'connected' if connected else f'{len(stranded)} stranded'} ({pa3_pts}/5 pts); "
         f"PA4: {len(footpaths)} footpaths ({pa4_pts}/3 pts); "
-        f"PA6: main={'yes' if main_road else 'no'}, secondary={len(secondary)} ({pa6_pts}/2 pts)"
+        f"PA6: main={'yes' if main_road else 'no'}, secondary={len(secondary)} ({pa6_pts}/2 pts){hint}"
     )
 
 
@@ -524,9 +590,13 @@ def _c9_land_use(shelters, facilities, parcel):
         score = round(max(0.0, 5 - (use_ratio - 0.85) / 0.15 * 5))
         label = "overcrowded — insufficient expansion reserve (SH10)"
     score = max(0, min(10, score))
+    hint = ""
+    if score < 10:
+        hint = (f" To improve: the built footprint ({use_ratio*100:.0f}%) exceeds the comfortable"
+                f" density threshold (70%) — leaving more space for expansion reserve (SH10) would improve this.")
     return score, (
         f"{use_ratio*100:.0f}% of parcel area used ({used_area:.0f}/{parcel_area:.0f} m^2) "
-        f"— {label}"
+        f"— {label}{hint}"
     )
 
 
