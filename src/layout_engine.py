@@ -548,6 +548,9 @@ def place_all_facilities(site: dict, requirements: dict) -> dict:
     rep_pt   = parcel.representative_point()
     cx, cy   = rep_pt.x, rep_pt.y
 
+    # Entrance point — used here for HP bias and reused for admin placement below.
+    ex, ey = _entry_point(site)
+
     # PA8: 1 m setback from existing OSM roads
     occ = None
     for road in (site.get("roads_m") or []):
@@ -564,10 +567,24 @@ def place_all_facilities(site: dict, requirements: dict) -> dict:
         out[key]    = items
         status[key] = {"placed": len(items), "required": required}
 
-    # ── 1. Health post — parcel centroid ─────────────────────────────────────
+    # ── 1. Health post — biased toward shelter cluster (away from entrance) ──────
+    # Shelters cluster on the side of the parcel opposite the entrance because
+    # the entrance side is occupied by the admin area and the main-road setback.
+    # Bias the HP target 25 % of the entrance→centroid distance further from the
+    # entrance so it sits closer to the eventual shelter centroid (direction is
+    # predictable even though shelter positions are not yet known).
     hp_w, hp_h = 15.0, 10.0
     hp_req     = _req("health_posts")
-    hp_corners = _nudge(parcel, cx, cy, hp_w, hp_h, step=4.0, max_rings=8, occupied=occ)
+    _edx, _edy = cx - ex, cy - ey
+    _elen = (_edx ** 2 + _edy ** 2) ** 0.5 or 1.0
+    bx0, by0, bx1, by1 = parcel.bounds
+    _diag = ((bx1 - bx0) ** 2 + (by1 - by0) ** 2) ** 0.5
+    _bias = min(0.25 * _elen, 0.15 * _diag)
+    hp_tx = cx + _edx / _elen * _bias
+    hp_ty = cy + _edy / _elen * _bias
+    hp_corners = _nudge(parcel, hp_tx, hp_ty, hp_w, hp_h, step=4.0, max_rings=8, occupied=occ)
+    if hp_corners is None:
+        hp_corners = _nudge(parcel, cx, cy, hp_w, hp_h, step=4.0, max_rings=8, occupied=occ)
     hp_cx, hp_cy = cx, cy
     if hp_corners:
         hp_cx = (hp_corners[0][0] + hp_corners[2][0]) / 2
@@ -625,7 +642,7 @@ def place_all_facilities(site: dict, requirements: dict) -> dict:
     # ── 5. Administrative area — near road entry ──────────────────────────────
     aa_req  = _req("administrative_area")
     aa_w, aa_h = 15.0, 10.0
-    ex, ey  = _entry_point(site)
+    # ex, ey already computed at top of function for HP bias — reused here.
     _dx, _dy = cx - ex, cy - ey
     _d  = (_dx ** 2 + _dy ** 2) ** 0.5 or 1.0
     aa_c = _nudge(parcel,

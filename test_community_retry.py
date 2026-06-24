@@ -1,26 +1,15 @@
 """
-Stage E test (24 June session): community candidate retry recovers
-otherwise-lost communities when a lattice candidate's open space collides
-with a small CS5 facility, while preserving zero-overlap and honest
-shortfall reporting.
+Stage E / HP-bias regression test: confirms all communities place cleanly
+on the 320x180m fixture now that the HP placement bias moves the HP off
+the community-candidate row, resolving the CS5 collision that previously
+caused a 224/240 shortfall.
 
-Diagnosis (see PROGRESS.md Stage E for the full instrumented trace):
-the candidate lattice in place_shelters() is built with NO redundancy --
-exactly n_communities candidate points for n_communities required, by
-design (the 54x48 m pitch is the collision-proof MINIMUM, so there is no
-slack to add extra candidates without risking overlap). That means any
-single candidate lost to a CS5 facility (typically much smaller than the
-pitch) becomes a permanent, unrecoverable shortfall, even when most of the
-parcel remains genuinely free -- this is the real mechanism behind the
-reported 224/240 shelters / 56/60 toilets shortfall (exactly one 16-family
-community, plus its 4 latrines).
-
-This fixture (320x180 m rectangle, population 1200) was constructed to
-reproduce that exact symptom: a tight grid (5 cols x 3 rows = 15
-candidates for 15 required communities, zero slack) where two candidates'
-open spaces collide with CS5 facilities (schools, community_space).
-Confirmed via instrumented trace this reproduces 224/240 shelters /
-56/60 toilets/latrines -- the exact numbers reported -- with NO fix.
+Historical note: before the HP bias fix, the HP sat at (160, 90) --
+exactly on a community-candidate position in the tight 5x3 grid -- blocking
+one slot. The retry logic (_COMM_RETRY_OFFSETS) recovered 1 of 2 blocked
+candidates (13 -> 14/15 communities). With HP now at ~(160, 112.5) due to
+bias, the collision no longer occurs and all 15 communities place without
+needing the retry path. Zero-overlap guarantee must still hold.
 
 Run from the project root:
     python test_community_retry.py
@@ -73,19 +62,19 @@ print(f"  shelters placed: {sr['placed']} / {sr['required']}")
 print(f"  latrines placed: {len(sr['community_latrines'])} / {ceil(population / 20)} required")
 
 all_ok &= _check(
-    "retry recovered at least one of the two CS5-blocked candidates "
-    "(13/15 -> 14/15 communities, confirmed via instrumented trace without the fix)",
-    len(sr["communities"]) == 14,
+    "all communities placed (HP bias moves HP off the community-candidate row, "
+    "resolving the CS5 collision that previously caused 13/15 -> 14/15)",
+    len(sr["communities"]) == 15,
     f"{len(sr['communities'])}/15",
 )
 all_ok &= _check(
-    "shelters placed matches the diagnosed real-world symptom (224/240)",
-    sr["placed"] == 224 and sr["required"] == 240,
+    "all shelters placed (224/240 shortfall no longer occurs with biased HP)",
+    sr["placed"] == 240 and sr["required"] == 240,
     f"{sr['placed']}/{sr['required']}",
 )
 all_ok &= _check(
-    "honest shortfall still reported (1 community genuinely unrecoverable)",
-    sr.get("shortfall_communities") == 1,
+    "no shortfall reported (all communities successfully placed)",
+    sr.get("shortfall_communities") is None or sr.get("shortfall_communities") == 0,
     f"shortfall_communities={sr.get('shortfall_communities')}",
 )
 
