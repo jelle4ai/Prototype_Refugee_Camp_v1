@@ -1,5 +1,75 @@
 # Progress Log
 
+## Date: 24 June 2026 — Scoring corrections + FD bug fix + explanation hints
+
+### Session summary
+Four changes made and committed; all regression tests green after each.
+
+### Stage 1 — School quality metric rewrite (COMPLETE)
+**Commit:** `8e6ab13`
+
+**Formula:** Replaced 60% comfort + 40% grid-fill-spread with three sub-scores:
+- Capacity (50%): `min(10, round(placed/required * 10))` — did we place enough schools?
+- Comfort (35%): mean ED3 proximity margin (unchanged from before)
+- Separation (15%): min pair distance / 200 m (10 if 1 school; scores ≥200 m apart as 10)
+- `sub = round(0.50*cap + 0.35*comfort + 0.15*sep)`
+
+**Why:** Old formula structurally penalised 2-school camps via 9-zone grid-fill ceiling (~2/9 = 0.22 → spread_score=2.2 max), making it impossible to score above 7 regardless of actual school positions. New formula rewards correct count + good proximity + good separation.
+
+**Test file:** `test_scoring_c5_school_quality.py` — 9 tests, all pass.
+
+---
+
+### Stage 2 — Land-use metric rewrite (COMPLETE)
+**Commit:** `8b47db5`
+
+**Thresholds (SH10-compliant):**
+- ≤70% use: score = 10 (sparse = expansion reserve, good per SH10)
+- 70–85%: linear 10 → 5 (dense, limited reserve)
+- >85%: linear 5 → 0 (overcrowded, insufficient reserve)
+
+**Why:** Old goldilocks curve scored 0 at ~6% use (camp that was genuinely sparse). Appendix E / SH10 treats leftover land as expansion reserve — a camp that uses only 20% of the parcel is doing the right thing, not failing.
+
+**Before/after (400×300 m, 1200pp, ~6% use):** land_use was 0/10, now 10/10.
+
+**Test file:** `test_scoring_c9_land_use.py` — 9 tests, all pass.
+
+---
+
+### Stage 3 — FD placement bug fix (COMPLETE)
+**Commit:** `2e4b1b1`
+
+**Root cause:** Previous session introduced `n_fd_to_place = max(fd_req, min(ceil(n_shelters/120), 6))` for large parcels. For 1200pp (fd_req=1, ~240 shelters), this placed `max(1, 2)=2` FD points when only 1 was required.
+
+**Fix:** Remove the over-placement logic entirely. Now places exactly `fd_req` points:
+- `fd_req > 1`: `_grid_place(parcel, fd_req, ...)` — spread across parcel
+- `fd_req == 1`: HP-adjacent single point (unchanged path)
+
+**Test file:** `test_fd_placement.py` — 6 tests updated; all pass. Key assertions:
+- 1200pp → exactly 1 FD point (was: ≥2)
+- 6000pp → exactly 2 FD points, spread >50 m
+
+---
+
+### Stage 4 — Improvement hints (COMPLETE)
+**Commit:** `ed03c64`
+
+**Scope:** Added " To improve: ..." hint text to the explanation string of each `_cN_` function when `score < 10`. Hints reference only variables already computed in that function.
+
+**Numeric scores are UNCHANGED** — confirmed by running all 9 component test files after the commit; all pass with identical numeric results.
+
+Hints added to: `_c1_health_post_centrality`, `_c2_water_quality`, `_c3_food_distribution`, `_c4_latrine_quality`, `_c5_school_quality`, `_c6_equity`, `_c7_spatial_quality`, `_c8_road_network`, `_c9_land_use`.
+
+---
+
+### Compliance gate
+Confirmed untouched: `git diff caae7bf..HEAD -- src/scoring.py` shows zero changes to `compliance_gate()` or `score_layout()`.
+
+### Streamlit
+Running on port 8505 (started at session end).
+
+---
+
 ## Date: 24 June 2026 — Layout improvement session 2 (HP bias + FD grid spread)
 
 ## HANDOFF
