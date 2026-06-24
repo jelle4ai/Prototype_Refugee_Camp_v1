@@ -1,5 +1,69 @@
 # Progress Log
 
+## Date: 24 June 2026 (autonomous session, part 3 — two small fixes)
+
+## HANDOFF
+
+Short session, two small independent fixes, one commit each, both green.
+
+**Fix A — site-selection map legend text unreadable (DONE):** `798636a`
+Located `_detail_fig()` in `src/site_search.py` (the per-candidate map
+showing the red site boundary and blue "Roads within site" overlay) —
+its `legend=dict(...)` had no font color set, so labels inherited the
+app theme's pale default. Added `font=dict(color="black")` to that
+legend only. Line colors unchanged (site boundary stays `#e63946` red,
+roads stay `#457b9d` blue). The overview map (`_candidates_fig`, shows
+multiple candidate sites, no road overlay) doesn't have this legend and
+was left untouched — the reported symptom ("red and blue lines, existing
+roads / detected roads") only matches `_detail_fig`. UI-only change, not
+verifiable by a scripted test — **needs visual confirmation in the
+browser.**
+
+**Fix B — main road still overshoots on real irregular sites (DONE):** `cf102a6`
+Diagnosis (done before touching code, as instructed): the previous trim
+fix (`029d1d6`, prior session) picked the shelter with the farthest
+PROJECTION onto the entrance → geometric-far-vertex axis, re-aimed at
+it, then capped travel distance using that ORIGINAL axis's length. On an
+irregular/concave parcel the boundary distance in the NEW (re-aimed)
+direction can be much shorter than the original axis's length, so the
+cap was simply wrong for the chosen direction. Confirmed directly on a
+synthetic L-shaped parcel: the computed far point landed OUTSIDE the
+parcel entirely (-9.8, 117.0) and got silently clipped to wherever that
+ray happened to cross the boundary (0, 111.5) — no real relationship to
+"margin past the target shelter". This is exactly the mechanism behind
+the visible overshoot on the real Derkinkweg site. The margin (35 m)
+itself wasn't really the problem; the wrong cap was.
+
+Fix: target the shelter farthest from the entrance by straight-line
+distance (direction-agnostic, no fixed axis — adapts to whatever shape
+the populated area actually takes, addressing the "not just projection
+along a single axis" requirement directly), cap travel by the smaller of
+the REAL parcel-boundary exit distance along THAT specific direction and
+(distance-to-target + margin). Tightened margin 35 m → 18 m (within the
+requested 15-20 m band). Verified across six differently-shaped synthetic
+parcels (rectangle, L-shape, triangle, two cut-corner variants, a notch,
+a thin diagonal): far terminus now lands 12.3-15.8 m from the nearest
+shelter on every one of them (was up to 40.3 m on the L-shape with the
+previous fix — worse than the 35 m margin itself, confirming the cap was
+the real bug, not just margin size). Connectivity holds on every shape.
+
+Entrance end unchanged; only the generated main road is trimmed
+(existing OSM roads remain tracked separately as `existing_roads`,
+confirmed untouched). Extended `test_main_road_trim.py` to run on two
+differently-shaped parcels (rectangle + the irregular cut-corner
+scenario B), asserting the far terminus is within 20 m of the nearest
+shelter/community, the entrance is unchanged, PA3 connectivity holds, and
+zero stranded nodes. Full regression suite re-run clean: `test_stage4.py`,
+`test_shelter_placement.py`, `test_road_overlap.py`,
+`test_road_connectivity.py`, `test_footpath_coverage.py`,
+`test_schools_placement.py`, `test_community_retry.py`,
+`test_move_facility.py`, `test_block.py`, `test_community.py`,
+`test_entrance.py`, `test_main_road.py`.
+
+**Nothing left open from this session.** Both fixes are scoped exactly
+as requested; Fix A needs your visual confirmation (cannot be verified
+by script), Fix B is fully test-verified.
+
 ## Date: 24 June 2026 (autonomous session, part 2 — refinement pass)
 
 ## HANDOFF
