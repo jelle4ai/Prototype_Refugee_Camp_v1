@@ -1,5 +1,104 @@
 # Progress Log
 
+## Date: 24 June 2026 — Layout improvement session (Stage 1 complete, Stage 2 skipped, Stage 3 diagnosed)
+
+## HANDOFF
+
+**ABSOLUTE RULE held:** `src/scoring.py` was NOT changed. Every score improvement
+comes from a genuinely better layout.
+
+### Stage 1 — Food distribution spread (COMPLETE)
+
+**Commit:** `1c8d93f`  — "Spread food distribution points based on shelter count (FD3/FD4)"
+
+**Change:** `src/layout_engine.py` FD placement block.
+- Previously: always 1 FD point adjacent to HP.
+- Now: `n_fd_to_place = max(fd_req, min(ceil(n_shelters/120), 6))` points placed in a
+  row adjacent to HP, 20 m centre-to-centre spacing.
+- Guard: extra points only placed when `parcel.area >= 80 000 m²` (≈ 300×270 m).
+  Prevents extra FD footprints landing on community grid positions in tight test fixtures.
+- **Result (1200pp, 400×300m parcel):** FD score 5→7, overall score ~71→74/100.
+- FD cap_score: ratio 240→120 shelters/point → cap_score 0→7. Proximity score
+  unchanged (~7). Combined: 0.7×7 + 0.3×7 = 7.
+
+**Tests added:** `test_fd_placement.py` (5 tests, all pass).
+**Full regression suite:** all standalone tests pass after change.
+
+---
+
+### Stage 2 — School spread (SKIPPED — no-op)
+
+**Analysis:** For a 1200pp camp, only 1 school is required (max(1, 1200//1000)=1).
+With 1 school, `_c5_school_quality` uses `spread_score = 5` (hardcoded). With
+comfort_score ≈ 8.82 (mean 882m margin): `sub = round(0.6×8.82 + 0.4×5) = 7`. Already 7/10.
+
+The "2/9 grid zones, 6/10" scenario occurs only for camps requiring 2 schools (≥ 2000pp).
+With exactly 2 schools and a 3×3 grid, maximum `gf = 2/9 = 0.22` regardless of placement
+position — a mathematical ceiling. The planned inset-polygon fix was confirmed to keep
+both schools in the same two diagonal corner zones of the scoring grid. No code change
+was made; the score for 2-school camps is locked at 6-7 by the scoring formula's 40%
+spread weight.
+
+---
+
+### Stage 3 — Diagnosis of latrine and equity weaknesses
+
+**Diagnostic run (1200pp, 400×300m parcel, commit `1c8d93f`):**
+```
+Total: 74/100
+health_post:       7/10  | HP 87m from shelter centroid (half-diag 250m)
+water_quality:     8/10  | mean 479m comfort, 5/9 zones
+food_distribution: 7/10  | avg 134m, 240 shelters / 2 points
+latrine_quality:   8/10  | mean 33.1m comfort, well spread
+school_quality:    7/10  | mean 882m comfort, 1 school
+equity:            6/10  | P90 water=27m, P90 latrine=26m, P90 HP=189m
+spatial_quality:  10/10  | 15/15 communities, 320m² open-space
+road_network:     10/10  | PA3/PA4/PA6 all pass
+land_use:          0/10  | 6% parcel used (structural)
+```
+
+#### Latrine quality (currently 8/10 — not 7/10 as described in setup)
+Already scoring 8/10 in the current session. No improvement needed or possible through
+layout changes alone. Mean comfort 33.1m, P90 latrine distance 26m vs 50m SA3 threshold.
+
+#### Equity (6/10) — root cause
+
+**Raw equity sub-scores:**
+| Sub-component | P90 distance | Threshold | Equity fraction |
+|---|---|---|---|
+| Water | 27 m | 500 m | 0.946 |
+| Sanitation | 26 m | 50 m | 0.476 |
+| Health post | 189 m | 250 m half-diag | 0.245 |
+| **Mean** | | | **0.557 → score 6** |
+
+**Bottleneck: health post equity (0.245).** HP is placed at parcel centroid (200, 150)
+but the actual shelter centroid ends up at (154, 76) — an 87m offset — because community
+candidates cluster in the lower half of the parcel inset after CS5 facilities (HP, FD, CS,
+admin, school, worship) occupy the centre area. The outer communities at x≈35, y≈35-131
+are 188-228m from HP.
+
+**To reach equity 7:** mean ≥ 0.651 (need +0.094 more). Paths:
+1. **Latrine path (minor):** Move community latrines from edge to centre of each
+   community footprint. Reduces P90 latrine from 26m to ~15m → equity_sanitation = 0.70.
+   New mean = (0.946 + 0.70 + 0.245) / 3 = 0.630. Rounds to 6 — not enough alone.
+2. **Health-post path (main lever):** Place HP at predicted shelter cluster centroid
+   rather than parcel centroid. If HP moves to ~(154, 76), P90 HP drops from 189m to
+   ~100m → equity_health = 0.60. New mean = (0.946 + 0.476 + 0.60) / 3 = 0.674 → 7.
+   **Blocker:** HP is placed in `place_all_facilities` before shelters exist. Shelter
+   centroid is not known at that point. Requires estimating the community cluster centroid
+   from parcel geometry alone — feasible via `parcel.buffer(-35).centroid` but this is the
+   same as parcel centroid for a convex parcel. A better estimate: shift toward the side of
+   the parcel opposite the entrance (admin area + entrance + CS5 pull communities away from
+   that side).
+3. **Combined path:** Both improvements together → equity 7-8.
+
+**Land use (0/10):** Structural. 6% of a 400×300m parcel = 72m² CS5 + shelter area.
+This component only scores well at ~50% utilisation, which requires a much larger
+population on the same parcel. Cannot be improved for this camp size without changing
+the parcel or population.
+
+---
+
 ## Date: 24 June 2026 — Quality scoring rewrite complete (Appendix E, all 9 components)
 
 ## HANDOFF
