@@ -1,5 +1,32 @@
 # Progress Log
 
+## Date: 25 June 2026 — Hamlet rebrand CSS fixes
+
+### Bug 1 — CSS injection fix (COMPLETE)
+**Commit:** `8ef1e75`
+
+**Root cause:** `<link>` elements injected via `st.markdown(..., unsafe_allow_html=True)` are stripped by Streamlit 1.58's HTML sanitizer, causing the remainder of the string (CSS text) to leak onto the page as visible text. Additionally, the multi-line box-drawing comment before the `div[style*="font-size:2.2rem"]` selector was confusing the browser's CSS parser.
+
+**Fix:** Replaced all three `<link>` tags for Google Fonts with a single `@import url(...)` rule inside the `<style>` block. Removed the problematic comment and the `div[style*=...]` attribute selector entirely (unreliable in React-rendered Streamlit anyway). Simplified all comments to plain ASCII.
+
+**Effect:** No raw CSS text visible on page; fonts load correctly via `@import`.
+
+---
+
+### Bug 2 — Surface contrast (COMPLETE)
+**Commit:** `28c8e02`
+
+**Change:** Swapped `backgroundColor`/`secondaryBackgroundColor` in `.streamlit/config.toml` and updated CSS surface values in `src/brand.py`:
+- Page background: Bone-2 `#EFEBE0` (slightly darker)
+- Cards/panels/expanders/tables/metrics: Bone `#F4F1EA` (lighter) — lifts off the page
+- Added `box-shadow: 0 1px 3px rgba(35,35,35,0.06)` to expanders, tables, metric containers
+
+**Not touched:** compliance colours (`#2e7d32`, `#e65100`, `#c62828`), Plotly map traces, `src/scoring.py`, `src/layout_engine.py`.
+
+**Brand CSS lives in:** `src/brand.py` — `_HAMLET_CSS` string and `_HAMLET_HEADER_HTML`. All future brand edits go there.
+
+---
+
 ## Date: 25 June 2026 — Hamlet visual rebrand
 
 ### Rebrand (COMPLETE)
