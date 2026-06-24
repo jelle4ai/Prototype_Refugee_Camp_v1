@@ -18,7 +18,7 @@ has been removed — it is now the gate):
   shelter_distribution ×4, site_utilisation ×4, overlap_avoidance ×2,
   all others ×1  (max weighted = 160, scaled to 100).
 """
-from math import sqrt
+from math import sqrt, ceil
 from shapely.geometry import Polygon as _Poly, Point as _Pt
 from shapely.ops import unary_union
 
@@ -587,6 +587,42 @@ def _c6_equity(shelters, water_pts, latrines, health_posts, parcel):
         f"latrines {p90_l_str} m (vs 50 m), "
         f"health post {p90_h_str} m (vs {half_diag:.0f} m half-diag); "
         f"equity score protects worst-served 10% (SA3/WS3/HE3)"
+    )
+
+
+def _c7_spatial_quality(shelter_result, parcel):
+    """Component 7 (weight 3): community completeness + open-space integrity (Appendix F).
+
+    Measures how well shelters form modular communities (16 families each around
+    a shared 16x20 m open space) rather than a bare uniform grid.
+    - Completeness: placed communities / required communities.
+    - Open-space integrity: mean(min(1, open_poly.area / 320)) per community,
+      where 320 m^2 = 16x20 m from Appendix F module geometry.
+    """
+    shelters    = shelter_result.get("shelters", [])
+    communities = shelter_result.get("communities", [])
+    if not communities:
+        if not shelters:
+            return 10, "No shelters (N/A)"
+        return 0, "No community structure (Appendix F module not formed)"
+    required          = shelter_result.get("required", 0)
+    n_required_comms  = max(1, ceil(required / 16))
+    placed_comms      = len(communities)
+    completeness      = min(1.0, placed_comms / n_required_comms)
+    completeness_score = round(completeness * 10)
+    open_adequacies = []
+    for c in communities:
+        if c.get("open_corners"):
+            open_area = _Poly(c["open_corners"]).area
+        else:
+            open_area = 0.0
+        open_adequacies.append(min(1.0, open_area / 320.0))
+    mean_adequacy = sum(open_adequacies) / len(open_adequacies)
+    open_score    = round(mean_adequacy * 10)
+    sub = max(0, min(10, round(0.5 * completeness_score + 0.5 * open_score)))
+    return sub, (
+        f"{placed_comms}/{n_required_comms} communities placed; "
+        f"mean open-space {mean_adequacy*320:.0f}/{320} m^2 per community (Appendix F)"
     )
 
 
