@@ -433,102 +433,61 @@ def _place_block(
 
 def _entry_point(site: dict) -> tuple[float, float]:
     """
-    Point on the parcel boundary nearest to the most relevant external road.
+    Point on the parcel boundary nearest to the genuine frontage road.
 
-    WORK IN PROGRESS — known to still misplace the entrance in some cases.
-    PA14: the entrance should connect to a real detected external road. Two
-    steps, deliberately separated:
-      1. Pick the ROAD: currently by minimum distance from each road's full
-         geometry to the parcel. CONFIRMED WRONG on real data from two
-         separate sites: a road that merely touches/terminates near a
-         corner (distance ~0) beats a road that runs alongside the parcel
-         for hundreds of metres, because single-point distance rewards a
-         trivial touch over genuine frontage. An "alongside-length within
-         an 8 m buffer" measure was tried as a diagnostic and correctly
-         identifies the real frontage road in both cases, but is not yet
-         wired into the actual selection below.
-      2. Project onto the boundary: nearest_points() from the chosen road to
-         the parcel exterior. Even once the right road is selected, this
-         still anchors to that road's single closest point, which can be a
-         corner-proximate spot rather than the middle of the stretch where
-         it actually runs alongside the parcel. Likely fix: place the
-         entrance at the midpoint of the alongside-stretch instead.
-    Side-agnostic intent (purely geometric, no hard-coded edge) holds for
-    the mechanism, but the selection criterion itself needs to change
-    before this reliably lands on the real access road.
-
-    TEMPORARY DIAGNOSTIC LOGGING below (the print() calls) — added to debug
-    the above, deliberately left in across sessions so the trace doesn't
-    need re-adding. MUST BE REMOVED before this function is considered done.
+    PA14: the entrance should connect to a real detected external road.
+      1. Pick the ROAD by the length of its geometry that falls within an
+         8 m buffer of the parcel, not by single nearest-point distance.
+         Single-point distance lets a road that merely touches/terminates
+         near a corner beat a road that runs alongside the parcel for
+         hundreds of metres (confirmed wrong on two real sites — a trivial
+         touch should not outrank genuine frontage).
+      2. Project onto the boundary at the midpoint of that road's longest
+         alongside-stretch (the piece of its buffer-intersection with the
+         greatest length), not its single closest point, which can be
+         corner-proximate even once the right road is selected.
+    Falls back to nearest-point selection/projection only if no road has
+    any stretch within the buffer (e.g. roads that only cross the parcel
+    at isolated points).
     """
     parcel_pts = site["parcel_polygon_m"]
     roads = site.get("roads_m") or []
     parcel = ShapelyPolygon(parcel_pts)
 
-    print(f"[_entry_point DEBUG] called with {len(roads)} road(s)", flush=True)
     if roads:
-        # SELECTION: length of each road's geometry that falls within an 8 m
-        # buffer of the parcel, NOT single nearest-point distance. A road
-        # that runs alongside the parcel for hundreds of metres should win
-        # over a road that merely terminates or clips past it near one
-        # point, even if that single point is very close (confirmed wrong
-        # on two real sites -- see docstring above).
         parcel_buf = parcel.buffer(8.0)
-        best_road, best_len, best_piece, best_i = None, -1.0, None, None
+        best_road, best_len, best_piece = None, -1.0, None
         nearest_road, nearest_d = None, float("inf")
-        for i, road in enumerate(roads):
+        for road in roads:
             if len(road) < 2:
-                print(f"[_entry_point DEBUG]   road {i}: skipped (<2 pts)", flush=True)
                 continue
             line = _ShapelyLine(road)
             d = line.distance(parcel)
             inter = line.intersection(parcel_buf)
             alongside_len = inter.length
-            xs = [p[0] for p in road]
-            ys = [p[1] for p in road]
-            print(f"[_entry_point DEBUG]   road {i}: {len(road)} pts, "
-                  f"bbox=({min(xs):.0f},{min(ys):.0f})-({max(xs):.0f},{max(ys):.0f}), "
-                  f"distance to parcel={d:.1f} m, "
-                  f"alongside-length (8m buffer)={alongside_len:.1f} m", flush=True)
-            # WHERE the alongside-length falls -- a long road can border an
-            # irregular parcel along more than one stretch; break the
-            # buffer-intersection into its contiguous pieces and track the
-            # single longest piece, which is what the entrance should
-            # actually anchor to (the genuine frontage stretch, not a
-            # scattered minor touch elsewhere on the same road).
+
+            # A long road can border an irregular parcel along more than
+            # one stretch; the entrance should anchor to the longest
+            # contiguous one (the genuine frontage), not a scattered minor
+            # touch elsewhere on the same road.
             longest_piece = None
             if not inter.is_empty:
                 pieces = list(inter.geoms) if hasattr(inter, "geoms") else [inter]
-                for j, g in enumerate(pieces):
-                    gb = g.bounds
-                    print(f"[_entry_point DEBUG]     piece {j}: length={g.length:.1f} m, "
-                          f"bbox=({gb[0]:.0f},{gb[1]:.0f})-({gb[2]:.0f},{gb[3]:.0f})", flush=True)
+                for g in pieces:
                     if longest_piece is None or g.length > longest_piece.length:
                         longest_piece = g
+
             if alongside_len > best_len:
-                best_len, best_road, best_piece, best_i = alongside_len, road, longest_piece, i
+                best_len, best_road, best_piece = alongside_len, road, longest_piece
             if d < nearest_d:
                 nearest_d, nearest_road = d, road
+
         if best_road is not None and best_piece is not None and best_piece.length > 0:
-            # PROJECTION: midpoint of the longest alongside stretch, not the
-            # single nearest point on the road's full geometry (which can be
-            # corner-proximate even once the right road is selected).
             mid = best_piece.interpolate(best_piece.length / 2)
             _, on_boundary = nearest_points(mid, parcel.exterior)
-            print(f"[_entry_point DEBUG] WINNER (alongside-length logic): road {best_i}, "
-                  f"alongside-length={best_len:.1f} m, "
-                  f"midpoint=({mid.x:.1f},{mid.y:.1f}), "
-                  f"entrance returned=({on_boundary.x:.1f},{on_boundary.y:.1f})", flush=True)
             return (on_boundary.x, on_boundary.y)
         if nearest_road is not None:
-            # No road has any stretch within the 8 m buffer (every candidate
-            # only ever touches/crosses the parcel at isolated points) --
-            # fall back to the old nearest-point projection on the closest
-            # road by full-geometry distance.
             _, on_boundary = nearest_points(_ShapelyLine(nearest_road), parcel.exterior)
-            print(f"[_entry_point DEBUG] WINNER (fallback, no alongside stretch): "
-                  f"distance={nearest_d:.1f} m, "
-                  f"entrance returned=({on_boundary.x:.1f},{on_boundary.y:.1f})", flush=True)
             return (on_boundary.x, on_boundary.y)
 
     minx, miny, maxx, _ = parcel.bounds
