@@ -471,6 +471,37 @@ def _c3_food_distribution(shelters, food_dist_pts, parcel):
     )
 
 
+def _c4_latrine_quality(shelters, latrines, parcel):
+    """Component 4 (weight 4): comfort margin below SA3 (50 m) + spread across zones (SA9)."""
+    if not shelters:
+        return 10, "No shelters (N/A)"
+    if not latrines:
+        return 0, "No latrine blocks placed — SA3/SA9"
+    lt_cens = [_centroid(l["corners_m"]) for l in latrines]
+    sh_cens = [_centroid(s["corners_m"]) for s in shelters]
+    mean_comfort  = sum(max(0.0, 50 - min(_dist(sc, lc) for lc in lt_cens))
+                        for sc in sh_cens) / len(sh_cens)
+    comfort_score = mean_comfort / 50 * 10
+    if len(lt_cens) == 1:
+        spread_score = 2
+    else:
+        xs = [p[0] for p in lt_cens]
+        ys = [p[1] for p in lt_cens]
+        mx = sum(xs) / len(xs)
+        my = sum(ys) / len(ys)
+        std = sqrt(sum((x - mx) ** 2 + (y - my) ** 2
+                       for x, y in lt_cens) / len(lt_cens))
+        bx0, by0, bx1, by1 = parcel.bounds
+        diag = sqrt((bx1 - bx0) ** 2 + (by1 - by0) ** 2)
+        spread_score = min(10, round(std / max(1.0, diag * 0.20) * 10))
+    sub = max(0, min(10, round(0.7 * comfort_score + 0.3 * spread_score)))
+    label = ("well spread" if spread_score >= 7
+             else "loosely spread" if spread_score >= 4 else "clustered")
+    return sub, (
+        f"Mean SA3 comfort {mean_comfort:.1f} m margin; latrines {label} (SA3/SA9)"
+    )
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Public scoring entry point
 # ─────────────────────────────────────────────────────────────────────────────
