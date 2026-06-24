@@ -1466,8 +1466,16 @@ def place_roads(site: dict,
     # sits at the parcel centroid -- exactly where the main road's middle
     # waypoint lands -- so a straight main road regularly cut through it
     # before this was wired in.
-    all_shelter_polys = [ShapelyPolygon(s["corners_m"])
-                         for s in shelter_result.get("shelters", [])]
+    #
+    # Tagged by id(item["corners_m"]) rather than just the built polygon, so
+    # a connector can cleanly exclude "the thing it's connecting to" -- a
+    # facility for secondary roads, a community's own shelters/latrines/
+    # washing/tap for tertiary paths -- even though the same underlying item
+    # dict (e.g. a community's water tap) also appears in the flattened
+    # facilities lists used to build this obstacle set.
+    def _tag(items: list) -> list[tuple[int, ShapelyPolygon]]:
+        return [(id(it["corners_m"]), ShapelyPolygon(it["corners_m"])) for it in items]
+
     _FAC_KEYS = [
         "health_post", "water_points", "food_distribution",
         "community_space", "administrative_area", "schools", "worship_facility",
@@ -1477,12 +1485,22 @@ def place_roads(site: dict,
     # routed to via tertiary paths below, not secondary roads), which are
     # just as real an obstacle to a road as any named CS5 facility.
     _OBSTACLE_FAC_KEYS = _FAC_KEYS + ["toilets", "washing_facilities"]
-    all_facility_polys: list[tuple[str, int, ShapelyPolygon]] = [
-        (key, idx, ShapelyPolygon(item["corners_m"]))
-        for key in _OBSTACLE_FAC_KEYS
-        for idx, item in enumerate(facilities.get(key, []))
+
+    shelter_entries:  list[tuple[int, ShapelyPolygon]] = _tag(shelter_result.get("shelters", []))
+    facility_entries: list[tuple[int, ShapelyPolygon]] = [
+        e for key in _OBSTACLE_FAC_KEYS for e in _tag(facilities.get(key, []))
     ]
-    all_obstacles = all_shelter_polys + [p for _, _, p in all_facility_polys]
+    all_entries    = shelter_entries + facility_entries
+    all_obstacles  = [p for _, p in all_entries]
+
+    def _obstacles_excluding(exclude_ids: set) -> list:
+        return [p for cid, p in all_entries if cid not in exclude_ids]
+
+    fac_key_idx: list[tuple[str, int]] = [
+        (key, idx)
+        for key in _FAC_KEYS
+        for idx in range(len(facilities.get(key, [])))
+    ]
 
     # ── 1. Main road: entrance → parcel centroid → farthest boundary point ────
     raw_wp = [(ex, ey),
@@ -1512,67 +1530,75 @@ def place_roads(site: dict,
     secondary_segs: list[dict] = []
     fac_pts: dict[str, tuple] = {}
 
-    for key, idx, fac_poly in all_facility_polys:
-        if key not in _FAC_KEYS:
-            continue   # toilets/washing_facilities: obstacles only, reached via tertiary paths
-        c = facilities[key][idx]["corners_m"]
+    for key, idx in fac_key_idx:
+        item = facilities[key][idx]
+        c = item["corners_m"]
         fcx = sum(p[0] for p in c) / len(c)
         fcy = sum(p[1] for p in c) / len(c)
         node_name = f"{key}_{idx}"
         fac_pts[node_name] = (fcx, fcy)
         if len(main_pts) >= 2:
-            cx_, cy_, _ = _nearest_on_polyline(main_pts, fcx, fcy)
+            cx_, cy_, _d = _nearest_on_polyline(main_pts, fcx, fcy)
         else:
             cx_, cy_ = main_pts[0]
         if _dist2((fcx, fcy), (cx_, cy_)) > 4:
             # Exclude this facility's own footprint -- the connector
             # necessarily starts inside it -- from the obstacles it must
             # route around.
-            obstacles = [p for p in all_obstacles if p is not fac_poly]
+            obstacles = _obstacles_excluding({id(c)})
             routed = _route_segment(parcel, (fcx, fcy), (cx_, cy_), obstacles)
             if routed:
                 secondary_segs.append({"pts_m": routed,
                                        "_node": node_name,
                                        "_conn": (cx_, cy_)})
 
-    # ── 3. Footpaths: shelter bands → nearest road node ───────────────────────
-    shelters = shelter_result.get("shelters", [])
+    # ── 3. Tertiary paths: each community's open space → nearest road node ────
+    # PA10-16: every community must be individually reachable, not just
+    # "shelters in general" via an arbitrary band grouping -- a planner
+    # needs to know THIS community connects, not that some unnamed cluster
+    # of 30 shelters does. Source point is the community's own shared open
+    # space centroid, which is guaranteed clear of its own shelters by
+    # construction (_place_community reserves it before placing the ring).
+    communities = shelter_result.get("communities", [])
     footpath_segs: list[dict] = []
-    band_pts: dict[str, tuple] = {}
+    comm_pts: dict[str, tuple] = {}
 
-    if shelters:
-        sh_cens = []
-        for s in shelters:
-            c = s["corners_m"]
-            sh_cens.append((sum(p[0] for p in c) / len(c),
-                            sum(p[1] for p in c) / len(c)))
-        sh_cens.sort(key=lambda p: p[1])
-
-        n_bands   = max(1, min(8, len(sh_cens) // 30))
-        band_size = max(1, len(sh_cens) // n_bands)
-
+    if communities:
         all_road_pts = list(main_pts)
         for seg in secondary_segs:
             all_road_pts.extend(seg["pts_m"])
 
-        for b in range(n_bands):
-            start = b * band_size
-            end   = start + band_size if b < n_bands - 1 else len(sh_cens)
-            band  = sh_cens[start:end]
-            bcx   = sum(p[0] for p in band) / len(band)
-            bcy   = sum(p[1] for p in band) / len(band)
-            band_name = f"shelter_band_{b}"
-            band_pts[band_name] = (bcx, bcy)
+        for ci, comm in enumerate(communities):
+            open_corners = comm.get("open_corners")
+            if open_corners:
+                ocx = sum(p[0] for p in open_corners) / len(open_corners)
+                ocy = sum(p[1] for p in open_corners) / len(open_corners)
+            else:
+                poly = comm.get("community_poly")
+                if poly is None:
+                    continue
+                ocx, ocy = poly.centroid.x, poly.centroid.y
+
+            comm_name = f"community_{ci}"
+            comm_pts[comm_name] = (ocx, ocy)
 
             rpts = all_road_pts if len(all_road_pts) >= 2 else [main_pts[0]]
             if len(rpts) >= 2:
-                cx_, cy_, _ = _nearest_on_polyline(rpts, bcx, bcy)
+                cx_, cy_, _d = _nearest_on_polyline(rpts, ocx, ocy)
             else:
                 cx_, cy_ = rpts[0]
-            if _dist2((bcx, bcy), (cx_, cy_)) > 4:
-                clipped = _clip_to_parcel(parcel, (bcx, bcy), (cx_, cy_))
-                if clipped:
-                    footpath_segs.append({"pts_m": clipped, "_node": band_name})
+            if _dist2((ocx, ocy), (cx_, cy_)) > 4:
+                # Exclude this community's own shelters/latrines/washing/tap
+                # -- the path necessarily starts among them -- from what it
+                # must route around.
+                own_ids = {id(s["corners_m"]) for s in comm.get("shelters", [])}
+                own_ids |= {id(l["corners_m"]) for l in comm.get("latrines", [])}
+                own_ids |= {id(w["corners_m"]) for w in comm.get("washing", [])}
+                own_ids |= {id(t["corners_m"]) for t in comm.get("water_taps", [])}
+                obstacles = _obstacles_excluding(own_ids)
+                routed = _route_segment(parcel, (ocx, ocy), (cx_, cy_), obstacles)
+                if routed:
+                    footpath_segs.append({"pts_m": routed, "_node": comm_name})
 
     # ── 4. Existing OSM roads (already in local metres) ───────────────────────
     existing_segs = [
@@ -1615,14 +1641,14 @@ def place_roads(site: dict,
             _add_edge(node_name, _nearest_main(fx, fy))
 
     all_settled = main_nodes + list(fac_pts)
-    for band_name, (bx, by) in band_pts.items():
-        _add_node(band_name, (bx, by))
-        seg = next((s for s in footpath_segs if s.get("_node") == band_name), None)
+    for comm_name, (cx2, cy2) in comm_pts.items():
+        _add_node(comm_name, (cx2, cy2))
+        seg = next((s for s in footpath_segs if s.get("_node") == comm_name), None)
         if seg:
-            nearest = min(all_settled, key=lambda n: _dist2(node_pos[n], (bx, by)))
-            _add_edge(band_name, nearest)
+            nearest = min(all_settled, key=lambda n: _dist2(node_pos[n], (cx2, cy2)))
+            _add_edge(comm_name, nearest)
         else:
-            _add_edge(band_name, _nearest_main(bx, by))
+            _add_edge(comm_name, _nearest_main(cx2, cy2))
 
     for i, eseg in enumerate(existing_segs):
         nn = f"existing_{i}"

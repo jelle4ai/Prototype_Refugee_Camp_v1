@@ -11,9 +11,9 @@ A road segment is allowed to touch the single facility/community it is
 connecting TO (it necessarily starts there); it must not cut through any
 OTHER shelter or facility.
 
-Landed incrementally per road level (see PROGRESS.md Stage C): main road
-and secondary roads are wired in and asserted here; footpaths/tertiary
-paths follow in a later commit, extended in place rather than duplicated.
+Landed incrementally per road level (see PROGRESS.md Stage C): main,
+secondary and tertiary (footpaths, one per community) are all wired in
+and asserted here.
 
 Run from the project root:
     python test_road_overlap.py
@@ -110,8 +110,7 @@ def _check_segments(label, segs):
 
 all_ok &= _check_segments("main_road", roads["main_road"])
 all_ok &= _check_segments("secondary_roads", roads["secondary_roads"])
-# footpaths/tertiary obstacle-avoidance lands in a later commit; asserted
-# here once wired in (see PROGRESS.md Stage C).
+all_ok &= _check_segments("footpaths", roads["footpaths"])
 
 print("=" * 60)
 if all_ok:
