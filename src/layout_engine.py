@@ -162,6 +162,14 @@ def _grid_place(parcel: ShapelyPolygon,
     return placed
 
 
+# Clear margin beyond a community's shared open space before its shelter
+# ring (SH12). Module-level (not local to _place_community) because
+# place_shelters()'s candidate-retry logic (see _COMM_RETRY_OFFSETS) needs
+# the same value to explicitly check a shifted open space against already-
+# placed geometry -- the two must stay in sync.
+_COMM_OPEN_CLEARANCE_M = 4.0
+
+
 def _place_community(
     parcel: ShapelyPolygon,
     cx: float,
@@ -210,7 +218,7 @@ def _place_community(
     _WSH_W    = 4.0        # washing unit width  (m)
     _WSH_H    = 3.0        # washing unit height (m)
     _SH_CLEAR = 2.01       # SH6: > 2 m gap; 0.01 sentinel avoids edge ambiguity
-    _OPEN_CLR = 4.0        # clear margin beyond open space before shelter ring (SH12)
+    _OPEN_CLR = _COMM_OPEN_CLEARANCE_M  # clear margin beyond open space before shelter ring (SH12)
     _LT_SOUTH = 34.0       # nominal distance south of centre for latrine block
     _WS5_MIN  = 30.0       # WS5: tap–latrine minimum separation (m)
 
@@ -795,6 +803,14 @@ def place_shelters(site: dict,
     _MARGIN           = 35.0
     # Community open-space half-extents (must match _place_community constants).
     _OPEN_HW, _OPEN_HH = 10.0, 8.0   # half of _OPEN_W = 20, _OPEN_H = 16
+    # Small nearby shifts tried when a lattice candidate's open space hits a
+    # CS5 facility (see below) -- axis-aligned first (cleanest for the
+    # typically-rectangular CS5 footprints), closest distance first.
+    _COMM_RETRY_OFFSETS = [
+        (0, 20), (0, -20), (20, 0), (-20, 0),
+        (0, 15), (0, -15), (15, 0), (-15, 0),
+        (20, 20), (20, -20), (-20, 20), (-20, -20),
+    ]
 
     n_communities = ceil(required / _N_FAM_PER_COMM)
 
@@ -872,16 +888,43 @@ def place_shelters(site: dict,
         if not inset.intersects(_ShapelyPoint(cx, cy)):
             continue
 
-        # Skip if the community open space (20 × 16 m) would land on a CS5 facility.
-        if cs5_geo is not None:
-            open_check = ShapelyPolygon([
-                (cx - _OPEN_HW, cy - _OPEN_HH),
-                (cx + _OPEN_HW, cy - _OPEN_HH),
-                (cx + _OPEN_HW, cy + _OPEN_HH),
-                (cx - _OPEN_HW, cy + _OPEN_HH),
+        # Skip if the community open space (20 × 16 m) would land on a CS5
+        # facility -- unless a small nearby shift clears it. The candidate
+        # lattice is sized with NO redundancy (exactly n_communities points
+        # for n_communities required, see the pitch derivation above), so
+        # losing even one candidate to a CS5 facility -- typically much
+        # smaller than the 54x48 m pitch -- makes an otherwise-genuinely-
+        # fittable community permanently unplaceable, even with abundant
+        # free space nearby (diagnosed and confirmed via instrumented trace:
+        # see PROGRESS.md Stage E). The collision-proof pitch derivation only
+        # holds for candidates exactly on the lattice, so any shifted centre
+        # is explicitly re-checked against the CS5 geometry AND the already-
+        # placed-community geometry (occ) before being accepted -- this is a
+        # safety IMPROVEMENT (an explicit check) over the open space's normal
+        # placement, which only relies on the lattice spacing and is never
+        # itself checked against occ.
+        def _open_rect(tx: float, ty: float) -> ShapelyPolygon:
+            return ShapelyPolygon([
+                (tx - _OPEN_HW, ty - _OPEN_HH), (tx + _OPEN_HW, ty - _OPEN_HH),
+                (tx + _OPEN_HW, ty + _OPEN_HH), (tx - _OPEN_HW, ty + _OPEN_HH),
             ])
-            if open_check.intersects(cs5_geo):
+
+        if cs5_geo is not None and _open_rect(cx, cy).intersects(cs5_geo):
+            shifted = None
+            for ddx, ddy in _COMM_RETRY_OFFSETS:
+                tx, ty = cx + ddx, cy + ddy
+                if not inset.intersects(_ShapelyPoint(tx, ty)):
+                    continue
+                trial_open = _open_rect(tx, ty)
+                if trial_open.intersects(cs5_geo):
+                    continue
+                if occ is not None and trial_open.buffer(_COMM_OPEN_CLEARANCE_M).intersects(occ):
+                    continue
+                shifted = (tx, ty)
+                break
+            if shifted is None:
                 continue
+            cx, cy = shifted
 
         result = _place_community(parcel, cx, cy, _N_FAM_PER_COMM, unit_w, unit_h, occ)
         if result is None:
