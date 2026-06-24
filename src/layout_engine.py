@@ -122,21 +122,43 @@ def _grid_place(parcel: ShapelyPolygon,
     cell_w, cell_h = span_x / cols, span_y / rows
     step = max(2.0, min(w, h) / 2) * step_mult
 
+    # Spread the `count` placements evenly across the grid's cell indices
+    # instead of filling row-major from the bottom-left corner. Row-major
+    # order clusters every instance at the first corner tried for low
+    # counts (e.g. 2 schools land at the first 1-2 cells scanned, which can
+    # both be in the same corner of the populated area) -- the grid is
+    # sized with headroom (target = count*3 for low counts) specifically so
+    # not every cell is needed, but that headroom is wasted if scan order
+    # never reaches the cells spread across the rest of the grid. Falls
+    # back to every remaining cell in original row-major order if a
+    # spread-out cell is blocked, so occluded grids are exactly as robust
+    # as before.
+    total_cells = rows * cols
+    if count >= total_cells:
+        primary = list(range(total_cells))
+    else:
+        primary = sorted({
+            round(i * (total_cells - 1) / max(1, count - 1))
+            for i in range(count)
+        })
+    primary_set = set(primary)
+    cell_order = primary + [i for i in range(total_cells) if i not in primary_set]
+
     placed: list[dict] = []
     local_occ = occupied  # never mutates caller's reference
 
-    for row in range(rows):
-        for col in range(cols):
-            if len(placed) >= count:
-                return placed
-            cx = minx + (col + 0.5) * cell_w
-            cy = miny + (row + 0.5) * cell_h
-            corners = _nudge(parcel, cx, cy, w, h, step=step, occupied=local_occ)
-            if corners is None:
-                continue
-            placed.append({"corners_m": corners})
-            local_occ = _union_add(local_occ, ShapelyPolygon(corners),
-                                   clearance=intra_clearance)
+    for idx in cell_order:
+        if len(placed) >= count:
+            return placed
+        row, col = divmod(idx, cols)
+        cx = minx + (col + 0.5) * cell_w
+        cy = miny + (row + 0.5) * cell_h
+        corners = _nudge(parcel, cx, cy, w, h, step=step, occupied=local_occ)
+        if corners is None:
+            continue
+        placed.append({"corners_m": corners})
+        local_occ = _union_add(local_occ, ShapelyPolygon(corners),
+                               clearance=intra_clearance)
     return placed
 
 
