@@ -1,5 +1,38 @@
 # Progress Log
 
+## Date: 24 June 2026 (autonomous session, part 4 — legend text, all maps)
+
+## HANDOFF
+
+Short session, one task: make legend text readable on every map, not
+just the one fixed previously. Searched the whole codebase first before
+changing anything (as instructed), then fixed.
+
+**All map legends found (4 total, no Folium/HTML legends anywhere):**
+
+| Map | File / function | Screen | Legend font color before this session |
+|---|---|---|---|
+| Candidate-site selection/overview | `src/site_search.py` `_candidates_fig()` (called from line 737) | site search: list of candidate sites | not set — pale default |
+| Selected-site detail map | `src/site_search.py` `_detail_fig()` (called from line 853) | site search: focused single-site view (red boundary + blue "Roads within site") | already black (fixed in commit `798636a`, prior session) |
+| Summary "Selected site" review map | `src/summary.py` `_site_map()` (called from line 281) | Stage 3 editable summary screen (red "Selected site" boundary + blue "Roads (...)") | not set — pale default |
+| Generated-layout map | `app.py` `_layout_map()` (called from line 439) | Stage: Layout (final camp map) | already black (`font=dict(size=11, color="#000000")`, present since this map was first built — not from a later patch) |
+
+**Fixed this session (commit `04c9e1b`):** added `font=dict(color="black")`
+to the legend in `_candidates_fig()` (`src/site_search.py`) and
+`_site_map()` (`src/summary.py`) — the same minimal change as the
+previous fix, line/marker colors untouched everywhere. `_detail_fig()`
+and `_layout_map()` needed no change, already explicit black.
+
+This should now be **every legend in the app** — confirmed by an
+exhaustive search (`legend=dict`, `go.Figure(`, `update_layout(`, and a
+separate case-insensitive `"legend"` grep across all `.py` files outside
+`.venv`) rather than assuming the count from before.
+
+UI-only change, not verifiable by script — **needs your visual
+confirmation** on the candidate-site overview map and the Stage 3
+summary screen's site map specifically (the other two were already
+fine).
+
 ## Date: 24 June 2026 (autonomous session, part 3 — two small fixes)
 
 ## HANDOFF
