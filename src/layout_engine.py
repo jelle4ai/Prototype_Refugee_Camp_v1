@@ -597,21 +597,15 @@ def place_all_facilities(site: dict, requirements: dict) -> dict:
     wp_req = _req("water_points")
     _record("water_points", [], wp_req)
 
-    # ── 3. Food distribution — spread across parcel (FD3 proximity + FD4 crowding) ─
-    # Aim for ≤120 shelters per point.  Multiple points are spread via
-    # _grid_place (same approach as schools) so average shelter-to-nearest-FD
-    # distance falls and FD3 proximity improves.  Guard: extra points only when
-    # parcel ≥80 000 m² to avoid footprints landing on community positions in
-    # tight test fixtures.  Single-point fallback keeps HP-adjacent placement.
+    # ── 3. Food distribution — exactly fd_req points (FD3 proximity + FD4 crowding) ──
+    # Place exactly the number of points required by the standards (fd_req).
+    # Multiple required points are spread via _grid_place for even coverage.
+    # Single required point is placed adjacent to the health post.
     fd_req = _req("food_distribution_points")
     fd_w, fd_h = 12.0, 8.0
-    n_shelters_est = requirements.get("shelter_units", {}).get("count", 0)
-    _parcel_large  = parcel.area >= 80_000
-    n_fd_to_place  = (max(fd_req, min(-(-n_shelters_est // 120), 6))
-                      if _parcel_large else fd_req)
     fd_out = []
-    if n_fd_to_place > 1:
-        fd_out = _grid_place(parcel, n_fd_to_place, fd_w, fd_h, occupied=occ)
+    if fd_req > 1:
+        fd_out = _grid_place(parcel, fd_req, fd_w, fd_h, occupied=occ)
         for item in fd_out:
             occ = _union_add(occ, ShapelyPolygon(item["corners_m"]), clearance=0.5)
     else:

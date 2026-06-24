@@ -1,6 +1,6 @@
 """
 test_fd_placement.py — Stage 1 regression
-Food distribution: multiple points placed for large populations (FD3/FD4).
+Food distribution: place exactly fd_req points (no over-placement).
 Run from project root: python test_fd_placement.py
 """
 import sys, os
@@ -52,24 +52,27 @@ def _dist(a, b):
     return sqrt((a[0]-b[0])**2 + (a[1]-b[1])**2)
 
 
-def test_pop1200_places_multiple_fd_points():
-    """1200pp -> 240 shelters -> n_fd = max(1, min(ceil(240/120),6)) = 2."""
+def test_pop1200_places_one_fd_point():
+    """1200pp -> fd_req=1 (< 5000 threshold) -> exactly 1 FD point placed."""
     site = _parcel_site()
     reqs = _reqs(1200)
+    assert reqs["food_distribution_points"]["count"] == 1, "prereq: fd_req should be 1 for 1200pp"
     fac  = place_all_facilities(site, reqs)
     fd   = fac.get("food_distribution", [])
-    assert len(fd) >= 2, (
-        f"Expected >=2 FD points for 1200pp / 240 shelters, got {len(fd)}"
+    assert len(fd) == 1, (
+        f"Expected exactly 1 FD point for 1200pp (fd_req=1), got {len(fd)}"
     )
-    print(f"  PASS  1200pp -> {len(fd)} FD points placed")
+    print(f"  PASS  1200pp -> {len(fd)} FD point placed (exactly fd_req=1)")
 
 
 def test_fd_points_not_clustered():
-    """All FD points must be >=20 m apart (not stacked on top of each other)."""
-    site = _parcel_site()
-    reqs = _reqs(1200)
+    """Multiple FD points (6000pp, fd_req=2) must be >=20 m apart."""
+    site = _parcel_site(600, 500)
+    reqs = _reqs(6000)
+    assert reqs["food_distribution_points"]["count"] == 2, "prereq: fd_req should be 2 for 6000pp"
     fac  = place_all_facilities(site, reqs)
     fd   = fac.get("food_distribution", [])
+    assert len(fd) >= 2, f"Expected >=2 FD points for 6000pp (fd_req=2), got {len(fd)}"
     cens = [_centroid(f["corners_m"]) for f in fd]
     for i in range(len(cens)):
         for j in range(i+1, len(cens)):
@@ -77,11 +80,11 @@ def test_fd_points_not_clustered():
             assert d >= 20, (
                 f"FD points {i} and {j} too close: {d:.1f} m < 20 m"
             )
-    print(f"  PASS  {len(fd)} FD points all >=20 m apart")
+    print(f"  PASS  {len(fd)} FD points all >=20 m apart (6000pp)")
 
 
 def test_compliance_gate_fd_still_passes():
-    """Compliance gate FD count check must still pass (placed ≥ required)."""
+    """Compliance gate FD count check must still pass (placed >= required)."""
     site = _parcel_site()
     reqs = _reqs(1200)
     fac  = place_all_facilities(site, reqs)
@@ -89,62 +92,57 @@ def test_compliance_gate_fd_still_passes():
     layout = {"shelter_result": {"shelters": [], "required": 0, "placed": 0},
               "facilities": fac, "roads": {"connected": True, "stranded": []}}
     gate = compliance_gate(layout, site, reqs)
-    # Find the FD count check
     fd_checks = [c for c in gate["checks"] if "food" in c["name"].lower()]
     for c in fd_checks:
         assert c["pass"], f"FD count compliance check failed: {c}"
-    print(f"  PASS  Compliance gate FD check passes ({len(fac['food_distribution'])} placed)")
+    print(f"  PASS  Compliance gate FD check passes ({len(fac['food_distribution'])} placed >= {reqs['food_distribution_points']['count']} required)")
 
 
-def test_pop4000_places_up_to_6_fd_points():
-    """4000pp -> 800 shelters → ceil(800/80)=10, but capped at 6."""
+def test_pop4000_places_exactly_one_fd_point():
+    """4000pp -> fd_req=1 (< 5000 threshold) -> exactly 1 FD point (not over-placed)."""
     site = _parcel_site(600, 500)
     reqs = _reqs(4000)
+    assert reqs["food_distribution_points"]["count"] == 1, "prereq: fd_req should be 1 for 4000pp"
     fac  = place_all_facilities(site, reqs)
     fd   = fac.get("food_distribution", [])
-    assert len(fd) >= reqs["food_distribution_points"]["count"], (
-        f"FD placed ({len(fd)}) < required ({reqs['food_distribution_points']['count']})"
+    assert len(fd) == 1, (
+        f"Expected exactly 1 FD point for 4000pp (fd_req=1), got {len(fd)}"
     )
-    assert len(fd) <= 6, f"FD points ({len(fd)}) exceeded cap of 6"
-    print(f"  PASS  4000pp -> {len(fd)} FD points (capped at 6)")
+    print(f"  PASS  4000pp -> {len(fd)} FD point (exactly fd_req=1, no over-placement)")
 
 
 def test_single_fd_still_places_when_pop_tiny():
     """Small population (<80 shelters) -> exactly 1 FD point, near HP (original behaviour)."""
     site = _parcel_site(200, 150)
-    reqs = _reqs(300)  # 60 shelters -> n_fd = max(1, min(1,6)) = 1
+    reqs = _reqs(300)  # 60 shelters -> fd_req=1
     fac  = place_all_facilities(site, reqs)
     fd   = fac.get("food_distribution", [])
     assert len(fd) == 1, f"Expected 1 FD point for 300pp / 60 shelters, got {len(fd)}"
     print(f"  PASS  300pp -> 1 FD point (single-point path)")
 
 
-def test_multiple_fd_points_are_spread():
-    """Multiple FD points must be >50 m apart (grid placement, not HP-adjacent row)."""
+def test_pop6000_places_two_spread_fd_points():
+    """6000pp -> fd_req=2 -> exactly 2 FD points, spread >50 m apart (grid placement)."""
     site = _parcel_site(400, 300)
-    reqs = _reqs(1200)
+    reqs = _reqs(6000)
+    assert reqs["food_distribution_points"]["count"] == 2, "prereq: fd_req should be 2 for 6000pp"
     fac  = place_all_facilities(site, reqs)
     fd   = fac.get("food_distribution", [])
-    assert len(fd) >= 2, f"Expected >=2 FD points, got {len(fd)}"
+    assert len(fd) == 2, f"Expected exactly 2 FD points for 6000pp (fd_req=2), got {len(fd)}"
     cens = [_centroid(f["corners_m"]) for f in fd]
-    min_d = min(
-        _dist(cens[i], cens[j])
-        for i in range(len(cens))
-        for j in range(i + 1, len(cens))
-    )
+    min_d = _dist(cens[0], cens[1])
     assert min_d > 50, (
-        f"FD points not genuinely spread: closest pair only {min_d:.1f} m apart "
-        f"(expected >50 m from grid placement)"
+        f"FD points not genuinely spread: only {min_d:.1f} m apart (expected >50 m)"
     )
-    print(f"  PASS  FD points spread: closest pair {min_d:.0f} m apart (>50 m)")
+    print(f"  PASS  6000pp -> exactly 2 FD points spread {min_d:.0f} m apart (>50 m)")
 
 
 if __name__ == "__main__":
-    test_pop1200_places_multiple_fd_points()
+    test_pop1200_places_one_fd_point()
     test_fd_points_not_clustered()
     test_compliance_gate_fd_still_passes()
-    test_pop4000_places_up_to_6_fd_points()
+    test_pop4000_places_exactly_one_fd_point()
     test_single_fd_still_places_when_pop_tiny()
-    test_multiple_fd_points_are_spread()
+    test_pop6000_places_two_spread_fd_points()
     print("=" * 50)
     print("ALL TESTS PASSED")
