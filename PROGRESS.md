@@ -1,5 +1,127 @@
 # Progress Log
 
+## Date: 24 June 2026 (autonomous session)
+
+## HANDOFF
+
+Worked unsupervised through Stages A, B, C of the session plan in full;
+stopped before Stage D (optional) rather than force an ambiguous,
+multi-layer feature. Every commit below is green (full regression suite
+passes after each one). Verification throughout was scripted Python tests
+(no browser) per session rules.
+
+**Stage A — entrance fix (DONE, was the open thread from 22 June):**
+- `4e749c0` — `_entry_point()` now selects the access road by alongside-
+  length within an 8 m buffer (not single nearest-point distance), and
+  projects the entrance onto the boundary at the midpoint of that road's
+  longest alongside-stretch, not its single closest point. Fixes the
+  exact bug diagnosed on 22 June: a corner-proximate stub road beating a
+  genuine hundreds-of-metres frontage road. `test_entrance.py` added —
+  synthetic fixture (corner stub vs. long frontage road) since real OSM
+  trace geometry could not be captured without a browser run.
+- `c8a1386` — stripped the temporary debug `print()` trace from
+  `_entry_point` (was marked "MUST BE REMOVED" in its docstring).
+
+**Stage B — main road shape (DONE):**
+- `d1659be` — added `test_main_road.py` confirming the main road starts
+  at the (corrected) entrance and spans most of the parcel's diagonal.
+  No engine change was needed here: the entrance fix plus the existing
+  entrance→centroid→far-vertex waypoint logic (landed before this
+  session) already produce this; the test guards against regression.
+
+**Stage C — road hierarchy / PA10-16 realism gap (DONE, landed in 3 commits):**
+This was the biggest item. Before this work, roads were straight lines
+regardless of what they crossed — confirmed on the irregular-parcel
+scenario from `test_stage4.py` (1500 pp, 300 shelters): 2/2 main road
+segments, 15/23 secondary roads, and 3/6 footpaths cut through a shelter
+or facility.
+- `af004aa` — added `_route_around()` (a small local visibility graph
+  using the existing NetworkX dependency) and `_displace_from_obstacles()`
+  (pushes a waypoint that lands inside an obstacle — e.g. the parcel
+  centroid landing inside the health post, since both target the same
+  point — out to just clear of it, since a road can't route "around" a
+  point that IS the obstacle). Wired into the main road only. Also fixed:
+  `place_roads`'s obstacle set was missing toilets/washing_facilities
+  entirely.
+- `4d63fb1` — wired the same obstacle avoidance into secondary roads
+  (each facility → nearest main-road point), excluding each facility's
+  own footprint. Also fixed a real performance problem found while
+  testing this: a wide corridor through a dense shelter field blew up the
+  O(nodes²) visibility-graph edge check (46s for one scenario). Capped
+  the graph to the nearest 8 obstacles within the corridor and switched
+  to shapely prepared geometries for the repeated intersection tests
+  (~6s after).
+- `2bd8198` — replaced footpaths (arbitrary "shelter band" groupings)
+  with one tertiary path per COMMUNITY, sourced from each community's own
+  shared open space centroid (guaranteed clear of its own shelters by
+  construction), routed with the same obstacle avoidance, excluding that
+  community's own shelters/latrines/washing/tap. Also fixed a latent
+  no-op in the secondary-road exclusion (was comparing against polygons
+  built from a different list, so never actually excluded anything — see
+  note below). Junctions fall out of the existing NetworkX graph
+  construction for free (no separate mechanism needed): a path attaching
+  to the nearest point on the main/secondary network becomes a graph
+  node.
+
+  Worth knowing for next time: most communities turn out to need no
+  explicit tertiary segment at all, because the obstacle-avoidance router
+  threads straight through communities' open spaces (deliberately not
+  obstacles) on its way across the site, rather than detouring around
+  them — so many communities already sit "on" the routed network by the
+  time tertiary paths are considered. Confirmed via direct distance
+  checks this is real routing behaviour, not a bug. The required
+  guarantee (every community reachable from the entrance through the
+  road graph, zero stranded nodes) holds regardless and is what's tested.
+
+  Tests: `test_road_overlap.py` (no main/secondary/footpath segment cuts
+  through a shelter or other facility — extended in place across the
+  three Stage C commits rather than duplicated) and
+  `test_road_connectivity.py` (every community reachable, zero stranded
+  nodes, on both a single-community parcel and the 19-community scenario
+  B from `test_stage4.py`).
+
+**Stage D — facility numbering (NOT STARTED, deliberate stop):**
+Per the session brief, this is optional and explicitly not to be forced
+if ambiguous. Looked at what it would take before stopping:
+- No facility numbering/labelling exists anywhere yet — `app.py` renders
+  multi-instance types (schools, worship_facility) as a single grouped
+  layer with a count label (e.g. "Schools (2)"), not individual numbered
+  markers. "Move school 2 east" is meaningless to a planner today because
+  there is no "2" visible on the map for them to have meant.
+- Making it real needs three layers to land together: (1) a UI change in
+  `app.py` to render and label individual instances on the map, (2) a
+  classifier change in `src/feedback.py` to extract an ordinal/index from
+  phrases like "school 2" or "the second school" (the prompt currently
+  explicitly instructs the LLM to decline these — see the "SINGLING OUT
+  ONE SPECIFIC INSTANCE" rule), and (3) an engine change in
+  `src/layout_engine.py`'s `move_facility()`, which currently hard-rejects
+  any key with `len(items) != 1` (line ~1172) and would need an index
+  parameter threaded through from the classifier, through `app.py`'s
+  call sites, to `facilities[key][index]`.
+- The UI labelling half of this cannot be verified by a scripted Python
+  test — this session's verification rule is scripts only, no browser —
+  so doing Stage D properly means either accepting unverified UI work or
+  pulling in a verify/browser pass, both of which are outside what this
+  autonomous session is set up to safely do.
+- Recommended next step: pick up Stage D in a session that can verify
+  the UI half by running the app, OR scope a smaller engine-only slice
+  first (e.g. accept a 1-based index in `move_facility()` and surface it
+  through the API without yet exposing it in the planner-facing
+  classifier/UI), and land map labelling as a separate, browser-verified
+  step.
+
+No assumptions made that aren't stated above; nothing was guessed past
+what each commit's own test asserts. Full regression suite (test_block.py,
+test_community.py, test_move_facility.py, test_shelter_placement.py,
+test_stage4.py, plus all Stage A/B/C tests) was green at every commit
+in this session. Note for next session: `test_move_facility.py` and
+`test_shelter_placement.py` take noticeably longer to run (~85s and ~15-20s
+respectively) than the rest of the suite — confirmed via profiling this
+is pre-existing (`_union_add`'s shapely `union()` calls inside
+`move_facility`, nothing touched this session), not a regression from
+this session's road work; budget for it if running the full suite with a
+short timeout.
+
 ## Date: 22 June 2026
 
 ## What works
