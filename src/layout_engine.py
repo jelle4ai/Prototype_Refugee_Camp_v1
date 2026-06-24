@@ -1270,6 +1270,22 @@ def _dist2(a: tuple, b: tuple) -> float:
     return (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2
 
 
+def _cluster_targets(points: list[tuple], radius: float = 12.0) -> list[tuple]:
+    """
+    Reduce *points* to a small set of representatives such that every input
+    point is within *radius* of one of them -- greedy, deterministic
+    (input order), not optimal clustering. Used so a single average point
+    doesn't silently fail to represent an outlier (e.g. one latrine stall
+    that landed well away from the rest of its row via a ring-search
+    fallback) while still collapsing a normal tight row into one target.
+    """
+    targets: list[tuple] = []
+    for p in points:
+        if not any(_dist2(p, t) <= radius * radius for t in targets):
+            targets.append(p)
+    return targets
+
+
 def _nearest_on_polyline(pts: list,
                          px: float, py: float) -> tuple[float, float, float]:
     """
@@ -1622,23 +1638,54 @@ def place_roads(site: dict,
             comm_name = f"community_{ci}"
             comm_pts[comm_name] = (ocx, ocy)
 
+            # Exclude this community's own shelters/latrines/washing/tap --
+            # the path necessarily starts among them -- from what it must
+            # route around.
+            own_ids = {id(s["corners_m"]) for s in comm.get("shelters", [])}
+            own_ids |= {id(l["corners_m"]) for l in comm.get("latrines", [])}
+            own_ids |= {id(w["corners_m"]) for w in comm.get("washing", [])}
+            own_ids |= {id(t["corners_m"]) for t in comm.get("water_taps", [])}
+            obstacles = _obstacles_excluding(own_ids)
+
             rpts = all_road_pts if len(all_road_pts) >= 2 else [main_pts[0]]
             if len(rpts) >= 2:
                 cx_, cy_, _d = _nearest_on_polyline(rpts, ocx, ocy)
             else:
                 cx_, cy_ = rpts[0]
-            if _dist2((ocx, ocy), (cx_, cy_)) > 4:
-                # Exclude this community's own shelters/latrines/washing/tap
-                # -- the path necessarily starts among them -- from what it
-                # must route around.
-                own_ids = {id(s["corners_m"]) for s in comm.get("shelters", [])}
-                own_ids |= {id(l["corners_m"]) for l in comm.get("latrines", [])}
-                own_ids |= {id(w["corners_m"]) for w in comm.get("washing", [])}
-                own_ids |= {id(t["corners_m"]) for t in comm.get("water_taps", [])}
-                obstacles = _obstacles_excluding(own_ids)
-                routed = _route_segment(parcel, (ocx, ocy), (cx_, cy_), obstacles)
+
+            # Entry spur: nearest road point -> this community's open space.
+            # Always drawn (PA10-16 realism), even when short, so the map
+            # shows a real path into every community rather than only an
+            # abstract graph edge for connectivity bookkeeping -- skipped
+            # only when the open space already sits right on the road.
+            if _dist2((ocx, ocy), (cx_, cy_)) > 1:
+                routed = _route_segment(parcel, (cx_, cy_), (ocx, ocy), obstacles)
                 if routed:
                     footpath_segs.append({"pts_m": routed, "_node": comm_name})
+
+            # Spurs reaching the community's interior near its latrine
+            # blocks. _place_community splits latrines north and south of
+            # the shared open space (Appendix F), so a planner needs the
+            # path to actually reach those blocks, not stop at the open
+            # space centre. A single spur per side isn't always enough: a
+            # latrine stall that needed its ring-search fallback (blocked
+            # by a firebreak/neighbour) can land well away from the rest of
+            # its own row, so each side is clustered into 1+ targets rather
+            # than averaged into one point that might reach none of them.
+            lat_cens = [
+                (sum(p[0] for p in l["corners_m"]) / len(l["corners_m"]),
+                 sum(p[1] for p in l["corners_m"]) / len(l["corners_m"]))
+                for l in comm.get("latrines", [])
+            ]
+            for side in (
+                [c for c in lat_cens if c[1] < ocy],   # south
+                [c for c in lat_cens if c[1] > ocy],   # north
+            ):
+                for ltx, lty in _cluster_targets(side, radius=12.0):
+                    if _dist2((ocx, ocy), (ltx, lty)) > 1:
+                        routed = _route_segment(parcel, (ocx, ocy), (ltx, lty), obstacles)
+                        if routed:
+                            footpath_segs.append({"pts_m": routed, "_node": comm_name})
 
     # ── 4. Existing OSM roads (already in local metres) ───────────────────────
     existing_segs = [

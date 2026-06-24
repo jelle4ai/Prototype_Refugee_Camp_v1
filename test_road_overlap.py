@@ -70,6 +70,29 @@ def _obstacle_polys(sr, facilities):
     return polys
 
 
+def _obstacle_entries(sr, facilities):
+    """(id(corners_m), poly) for every shelter/facility footprint -- tagged
+    the same way place_roads() tags its own obstacle set, so a community's
+    own elements can be excluded precisely rather than by nearest-neighbour
+    guessing (a tertiary spur legitimately passes close to several of its
+    OWN community's latrines/shelters/tap, not just one)."""
+    entries = [(id(s["corners_m"]), _Poly(s["corners_m"])) for s in sr["shelters"]]
+    for key in ("health_post", "food_distribution", "community_space",
+                "administrative_area", "schools", "worship_facility",
+                "water_points", "toilets", "washing_facilities"):
+        for item in facilities.get(key, []):
+            entries.append((id(item["corners_m"]), _Poly(item["corners_m"])))
+    return entries
+
+
+def _community_own_ids(comm):
+    ids = {id(s["corners_m"]) for s in comm.get("shelters", [])}
+    ids |= {id(l["corners_m"]) for l in comm.get("latrines", [])}
+    ids |= {id(w["corners_m"]) for w in comm.get("washing", [])}
+    ids |= {id(t["corners_m"]) for t in comm.get("water_taps", [])}
+    return ids
+
+
 def _cuts_through(line, poly):
     """True if *line* passes through poly's interior for more than a graze."""
     if not line.intersects(poly):
@@ -108,9 +131,28 @@ def _check_segments(label, segs):
                   n_bad == 0, f"{n_bad} bad segment(s)")
 
 
+def _check_footpaths(label, segs, communities):
+    entries = _obstacle_entries(sr, facilities)
+    own_ids_by_comm = [_community_own_ids(c) for c in communities]
+    n_bad = 0
+    for seg in segs:
+        node = seg.get("_node", "")
+        ci = int(node.split("_")[1]) if node.startswith("community_") else None
+        own_ids = own_ids_by_comm[ci] if ci is not None else set()
+        line = _LS(seg["pts_m"])
+        for cid, poly in entries:
+            if cid in own_ids:
+                continue
+            if _cuts_through(line, poly):
+                n_bad += 1
+                break
+    return _check(f"{label}: no cut-through obstacles ({len(segs)} segments)",
+                  n_bad == 0, f"{n_bad} bad segment(s)")
+
+
 all_ok &= _check_segments("main_road", roads["main_road"])
 all_ok &= _check_segments("secondary_roads", roads["secondary_roads"])
-all_ok &= _check_segments("footpaths", roads["footpaths"])
+all_ok &= _check_footpaths("footpaths", roads["footpaths"], sr["communities"])
 
 print("=" * 60)
 if all_ok:
