@@ -79,7 +79,8 @@ def _site_map(site: dict) -> go.Figure:
         mapbox=dict(style="open-street-map", center=dict(lat=mid_lat, lon=mid_lon), zoom=zoom),
         margin=dict(l=0, r=0, t=0, b=0),
         height=280,
-        legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01, bgcolor="rgba(255,255,255,0.85)"),
+        legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01, bgcolor="rgba(255,255,255,0.85)",
+                    font=dict(color="black")),
     )
     return fig
 
