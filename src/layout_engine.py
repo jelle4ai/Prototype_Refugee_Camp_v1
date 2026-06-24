@@ -580,17 +580,27 @@ def place_all_facilities(site: dict, requirements: dict) -> dict:
     wp_req = _req("water_points")
     _record("water_points", [], wp_req)
 
-    # ── 3. Food distribution — adjacent to health post ────────────────────────
+    # ── 3. Food distribution — multiple points near health post (FD3/FD4) ──────
     fd_req = _req("food_distribution_points")
     fd_w, fd_h = 12.0, 8.0
+    # Aim for ≤120 shelters per point (meaningful FD4 improvement).  Extra
+    # points are placed in a row adjacent to HP so they stay away from the main
+    # road corridor.  Only add extras when the parcel is large enough (≥80 000 m²
+    # ≈ 300×270 m) to give the community grid room without extra FD footprints
+    # landing on community candidate positions.  Cap at 6.
+    n_shelters_est = requirements.get("shelter_units", {}).get("count", 0)
+    _parcel_large  = parcel.area >= 80_000
+    n_fd_to_place  = (max(fd_req, min(-(-n_shelters_est // 120), 6))
+                      if _parcel_large else fd_req)
+    _fd_step = fd_w + 8.0   # 20 m centre-to-centre — keeps points visibly distinct
     fd_out = []
-    for i in range(fd_req):
-        offset = (hp_w / 2 + fd_w / 2 + 3.0) + i * (fd_w + 3.0)
-        c = _nudge(parcel, hp_cx + offset, hp_cy, fd_w, fd_h, occupied=occ)
+    for i in range(n_fd_to_place):
+        base_off = hp_w / 2 + fd_w / 2 + 3.0 + i * _fd_step
+        c = _nudge(parcel, hp_cx + base_off, hp_cy, fd_w, fd_h, occupied=occ)
         if c is None:
-            c = _nudge(parcel, hp_cx - offset, hp_cy, fd_w, fd_h, occupied=occ)
+            c = _nudge(parcel, hp_cx - base_off, hp_cy, fd_w, fd_h, occupied=occ)
         if c is None:
-            c = _nudge(parcel, hp_cx, hp_cy + offset, fd_w, fd_h, occupied=occ)
+            c = _nudge(parcel, hp_cx, hp_cy + base_off, fd_w, fd_h, occupied=occ)
         if c:
             fd_out.append({"corners_m": c})
             occ = _union_add(occ, ShapelyPolygon(c), clearance=0.5)
