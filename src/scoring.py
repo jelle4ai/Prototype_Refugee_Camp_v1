@@ -501,12 +501,12 @@ def _c8_road_network(roads, shelter_result):
 
 
 def _c9_land_use(shelters, facilities, parcel):
-    """Component 9 (weight 1): share of buildable area sensibly used.
+    """Component 9 (weight 1): sensible density without overcrowding (SH10).
 
-    Peaks at 50% use (10/10): camp uses half the parcel for shelter and facilities,
-    leaving space for roads, open areas, and expansion.
-    Too sparse (<= 5%): score 0. Too dense (100%): score 0.
-    Piecewise linear goldilocks curve.
+    Leftover land is treated as expansion reserve and NOT penalised.
+    Score drops only when the built footprint becomes overcrowded.
+    Threshold: <= 70% of parcel = sensible (score 10); 70-85% = dense (10->5);
+    > 85% = overcrowded (5->0). Sparse layouts score 10 (SH10 expansion reserve).
     """
     polys = _all_polys(shelters, facilities)
     if not polys:
@@ -514,16 +514,16 @@ def _c9_land_use(shelters, facilities, parcel):
     used_area   = unary_union(polys).area
     parcel_area = parcel.area
     use_ratio   = used_area / max(1.0, parcel_area)
-    if use_ratio <= 0.05:
-        score = 0
-    elif use_ratio <= 0.50:
-        score = round((use_ratio - 0.05) / 0.45 * 10)
-    elif use_ratio <= 0.80:
-        score = round(10 - (use_ratio - 0.50) / 0.30 * 3)
+    if use_ratio <= 0.70:
+        score = 10
+        label = "spacious — leftover area is expansion reserve (SH10)"
+    elif use_ratio <= 0.85:
+        score = round(10 - (use_ratio - 0.70) / 0.15 * 5)
+        label = "dense — limited expansion reserve"
     else:
-        score = round(max(0.0, 7 - (use_ratio - 0.80) / 0.20 * 7))
+        score = round(max(0.0, 5 - (use_ratio - 0.85) / 0.15 * 5))
+        label = "overcrowded — insufficient expansion reserve (SH10)"
     score = max(0, min(10, score))
-    label = "too sparse" if score <= 3 else "well balanced" if score >= 7 else "moderate density"
     return score, (
         f"{use_ratio*100:.0f}% of parcel area used ({used_area:.0f}/{parcel_area:.0f} m^2) "
         f"— {label}"
