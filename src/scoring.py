@@ -626,6 +626,35 @@ def _c7_spatial_quality(shelter_result, parcel):
     )
 
 
+def _c8_road_network(roads, shelter_result):
+    """Component 8 (weight 2): connectivity and hierarchy (PA3/PA4/PA6).
+
+    PA3 (5 pts): network fully connected (hard gate already checks this, but
+      quality grades partial connectivity by stranded count).
+    PA4 (3 pts): footpath coverage — one path per community expected.
+    PA6 (2 pts): main road spanning site + secondary roads to facility zones.
+    """
+    if not roads:
+        return 5, "Road data unavailable — scored conservatively"
+    required      = shelter_result.get("required", 0)
+    required_comms = max(1, ceil(required / 16))
+    connected = roads.get("connected", False)
+    stranded  = roads.get("stranded", [])
+    pa3_pts   = 5 if connected else max(0, 5 - min(5, len(stranded) * 2))
+    footpaths = roads.get("footpaths", [])
+    fp_ratio  = min(1.0, len(footpaths) / max(1, required_comms))
+    pa4_pts   = round(fp_ratio * 3)
+    secondary = roads.get("secondary_roads", [])
+    main_road = roads.get("main_road", [])
+    pa6_pts   = (1 if main_road else 0) + (1 if len(secondary) >= 1 else 0)
+    sub = min(10, pa3_pts + pa4_pts + pa6_pts)
+    return sub, (
+        f"PA3: {'connected' if connected else f'{len(stranded)} stranded'} ({pa3_pts}/5 pts); "
+        f"PA4: {len(footpaths)} footpaths ({pa4_pts}/3 pts); "
+        f"PA6: main={'yes' if main_road else 'no'}, secondary={len(secondary)} ({pa6_pts}/2 pts)"
+    )
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Public scoring entry point
 # ─────────────────────────────────────────────────────────────────────────────
