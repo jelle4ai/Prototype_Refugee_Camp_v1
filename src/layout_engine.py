@@ -1313,6 +1313,106 @@ def _clip_to_parcel(parcel: ShapelyPolygon,
     return None
 
 
+def _displace_from_obstacles(pt: tuple, obstacles: list,
+                             clearance: float = 2.0) -> tuple:
+    """
+    If *pt* sits inside any obstacle (e.g. the parcel centroid landing
+    inside the health post, which is placed there too), push it out to just
+    outside that obstacle's boundary. A waypoint a road must actually reach
+    can't be routed "around" if the point itself is the obstacle.
+    """
+    p = _ShapelyPoint(pt)
+    for ob in obstacles:
+        if ob.contains(p):
+            nearest = nearest_points(p, ob.exterior)[1]
+            ocx, ocy = ob.centroid.x, ob.centroid.y
+            dx, dy = nearest.x - ocx, nearest.y - ocy
+            dlen = (dx * dx + dy * dy) ** 0.5 or 1.0
+            return (nearest.x + dx / dlen * clearance,
+                    nearest.y + dy / dlen * clearance)
+    return pt
+
+
+def _route_around(p1: tuple, p2: tuple, obstacles: list,
+                  corridor: float = 20.0, clearance: float = 1.5,
+                  _forced: tuple = (), _depth: int = 0) -> list[tuple]:
+    """
+    Polyline from p1 to p2 that avoids *obstacles* (a list of ShapelyPolygons
+    the path must not cut through -- shelters, facility footprints), via a
+    small local visibility graph. Falls back to the direct segment when it
+    already clears every obstacle, which is the common case.
+
+    Only obstacles within *corridor* metres of the direct line (plus any
+    already known to matter from a prior retry, via *_forced*) become graph
+    nodes, keeping the visibility graph small regardless of how many
+    shelters exist elsewhere on site. After finding a candidate path, it is
+    re-checked against every obstacle (not just the nearby ones) -- a detour
+    around one obstacle can pass close to a second one outside the original
+    corridor -- and retried with that obstacle folded in if so, up to 3
+    times.
+    """
+    direct = _ShapelyLine([p1, p2])
+    forced_ids = {id(o) for o in _forced}
+    relevant = list(_forced) + [o for o in obstacles
+                                if id(o) not in forced_ids
+                                and o.intersects(direct.buffer(corridor))]
+    blocking = [o for o in relevant
+                if direct.intersects(o) and direct.intersection(o).length > 0.05]
+    if not blocking:
+        return [p1, p2]
+
+    nodes: dict[str, tuple] = {"_start": p1, "_end": p2}
+    for k, ob in enumerate(relevant):
+        buf = ob.buffer(clearance, join_style=2)
+        for j, c in enumerate(list(buf.exterior.coords)[:-1]):
+            nodes[f"o{k}_{j}"] = c
+
+    names = list(nodes.keys())
+    G = _nx.Graph()
+    G.add_nodes_from(names)
+    for i in range(len(names)):
+        for j in range(i + 1, len(names)):
+            a, b   = names[i], names[j]
+            pa, pb = nodes[a], nodes[b]
+            seg    = _ShapelyLine([pa, pb])
+            if any(seg.intersects(o) and seg.intersection(o).length > 0.05
+                   for o in relevant):
+                continue
+            G.add_edge(a, b, weight=_dist2(pa, pb) ** 0.5)
+
+    try:
+        path_names = _nx.shortest_path(G, "_start", "_end", weight="weight")
+    except (_nx.NetworkXNoPath, _nx.NodeNotFound):
+        return [p1, p2]   # honest fallback: no clear route found
+    path = [nodes[n] for n in path_names]
+
+    relevant_ids = {id(o) for o in relevant}
+    route_line = _ShapelyLine(path)
+    missed = [o for o in obstacles
+             if id(o) not in relevant_ids
+             and route_line.intersects(o) and route_line.intersection(o).length > 0.05]
+    if missed and _depth < 3:
+        return _route_around(p1, p2, obstacles, corridor=corridor,
+                             clearance=clearance,
+                             _forced=tuple(relevant) + tuple(missed),
+                             _depth=_depth + 1)
+    return path
+
+
+def _route_segment(parcel: ShapelyPolygon, p1: tuple, p2: tuple,
+                   obstacles: list, corridor: float = 20.0) -> list | None:
+    """_route_around() + clip every leg of the result to the parcel."""
+    routed = _route_around(p1, p2, obstacles, corridor=corridor)
+    pts: list[tuple] = []
+    for i in range(len(routed) - 1):
+        clipped = _clip_to_parcel(parcel, routed[i], routed[i + 1])
+        if clipped:
+            for pt in clipped:
+                if not pts or _dist2(pt, pts[-1]) > 1:
+                    pts.append(pt)
+    return pts or None
+
+
 def place_roads(site: dict,
                 shelter_result: dict,
                 facilities: dict) -> dict:
@@ -1350,8 +1450,33 @@ def place_roads(site: dict,
     # post) still connect via the unchanged secondary-road logic below.
     far_x, far_y = max(parcel.exterior.coords, key=lambda p: _dist2(p, (ex, ey)))
 
+    # ── Obstacles every road level must route around (PA10-16 realism): every
+    # placed shelter and facility footprint. The health post in particular
+    # sits at the parcel centroid -- exactly where the main road's middle
+    # waypoint lands -- so a straight main road regularly cut through it
+    # before this was wired in.
+    all_shelter_polys = [ShapelyPolygon(s["corners_m"])
+                         for s in shelter_result.get("shelters", [])]
+    _FAC_KEYS = [
+        "health_post", "water_points", "food_distribution",
+        "community_space", "administrative_area", "schools", "worship_facility",
+    ]
+    # Obstacle set is wider than the secondary-road facility list above: it
+    # also includes toilets and washing units (community-level facilities,
+    # routed to via tertiary paths below, not secondary roads), which are
+    # just as real an obstacle to a road as any named CS5 facility.
+    _OBSTACLE_FAC_KEYS = _FAC_KEYS + ["toilets", "washing_facilities"]
+    all_facility_polys: list[tuple[str, int, ShapelyPolygon]] = [
+        (key, idx, ShapelyPolygon(item["corners_m"]))
+        for key in _OBSTACLE_FAC_KEYS
+        for idx, item in enumerate(facilities.get(key, []))
+    ]
+    all_obstacles = all_shelter_polys + [p for _, _, p in all_facility_polys]
+
     # ── 1. Main road: entrance → parcel centroid → farthest boundary point ────
-    raw_wp = [(ex, ey), (rep.x, rep.y), (far_x, far_y)]
+    raw_wp = [(ex, ey),
+             _displace_from_obstacles((rep.x, rep.y), all_obstacles),
+             (far_x, far_y)]
     waypoints: list[tuple] = [raw_wp[0]]
     for pt in raw_wp[1:]:
         if _dist2(pt, waypoints[-1]) > 25:      # skip if < 5 m apart
@@ -1360,10 +1485,11 @@ def place_roads(site: dict,
     main_segs: list[dict] = []
     main_pts:  list[tuple] = []
     for i in range(len(waypoints) - 1):
-        clipped = _clip_to_parcel(parcel, waypoints[i], waypoints[i + 1])
-        if clipped:
-            main_segs.append({"pts_m": clipped})
-            for pt in clipped:
+        routed = _route_segment(parcel, waypoints[i], waypoints[i + 1],
+                                all_obstacles)
+        if routed:
+            main_segs.append({"pts_m": routed})
+            for pt in routed:
                 if not main_pts or _dist2(pt, main_pts[-1]) > 1:
                     main_pts.append(pt)
 
