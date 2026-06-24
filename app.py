@@ -15,8 +15,9 @@ from src.requirements_engine import compute_requirements
 from src.site_search import metres_to_latlon
 from src.summary import render_summary_stage
 from src.feedback import classify_feedback, MOVABLE_FACILITY_KEYS
+from src.brand import apply_brand, render_brand_header
 
-st.set_page_config(page_title="Refugee Camp Layout Generator", layout="wide")
+st.set_page_config(page_title="Hamlet — Refugee Camp Layout", layout="wide")
 
 STAGES = ["input", "location", "summary", "layout"]
 
@@ -651,6 +652,7 @@ def _scroll_to_top() -> None:
 
 
 def main():
+    apply_brand()
     init_session_state()
 
     current_stage = st.session_state["stage"]
@@ -658,7 +660,7 @@ def main():
         st.session_state["_prev_stage"] = current_stage
         _scroll_to_top()
 
-    st.title("Refugee Camp Layout Generator")
+    render_brand_header()
     STAGE_HANDLERS[current_stage]()
 
 
