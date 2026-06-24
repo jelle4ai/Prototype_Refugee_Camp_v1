@@ -1461,6 +1461,46 @@ def place_roads(site: dict,
     # post) still connect via the unchanged secondary-road logic below.
     far_x, far_y = max(parcel.exterior.coords, key=lambda p: _dist2(p, (ex, ey)))
 
+    # ── Trim the far end to the populated extent, not the geometric vertex ────
+    # PA1: the generated main road should stop a small margin past the
+    # furthest placed shelter/community, not run on to the farthest parcel
+    # boundary vertex regardless of where the camp actually ends up --
+    # otherwise it crosses empty land beyond the last shelters. The
+    # entrance end is untouched. This only affects the GENERATED main road
+    # (main_segs below); existing OSM roads from site["roads_m"] are
+    # tracked separately as "existing_roads" further down and are never
+    # modified here.
+    #
+    # The farthest-projected shelter (along the entrance -> original far
+    # vertex axis) identifies WHICH shelter marks the populated extent in
+    # that general direction, but the final far point re-aims straight at
+    # that specific shelter (not the original axis) before adding the
+    # margin -- the populated area is rarely exactly on-axis with the
+    # parcel's geometric far corner, and aiming at the actual shelter is
+    # what keeps the terminus close to it rather than merely closer.
+    _MAIN_ROAD_MARGIN_M = 35.0
+    _dir_dx, _dir_dy = far_x - ex, far_y - ey
+    _dir_len = (_dir_dx ** 2 + _dir_dy ** 2) ** 0.5 or 1.0
+    _dir_dx, _dir_dy = _dir_dx / _dir_len, _dir_dy / _dir_len
+
+    _populated_pts = [
+        (sum(p[0] for p in s["corners_m"]) / len(s["corners_m"]),
+         sum(p[1] for p in s["corners_m"]) / len(s["corners_m"]))
+        for s in shelter_result.get("shelters", [])
+    ]
+    if _populated_pts:
+        _tx, _ty = max(_populated_pts,
+                       key=lambda p: (p[0] - ex) * _dir_dx + (p[1] - ey) * _dir_dy)
+        _tdx, _tdy = _tx - ex, _ty - ey
+        _tdist = (_tdx ** 2 + _tdy ** 2) ** 0.5
+        if _tdist > 0.1:
+            _tdx, _tdy = _tdx / _tdist, _tdy / _tdist
+            _far_dist = min(_dir_len, _tdist + _MAIN_ROAD_MARGIN_M)
+            far_x, far_y = ex + _tdx * _far_dist, ey + _tdy * _far_dist
+    # else: no shelters placed (e.g. R4 failure) -- fall back to the
+    # geometric farthest vertex computed above; there is no populated extent
+    # to trim to.
+
     # ── Obstacles every road level must route around (PA10-16 realism): every
     # placed shelter and facility footprint. The health post in particular
     # sits at the parcel centroid -- exactly where the main road's middle
