@@ -1,5 +1,73 @@
 # Progress Log
 
+## Date: 25 June 2026 — Four-fix autonomous session (Phase 2)
+
+### Session overview
+Four fixes, committed individually with full regression suite green before each.
+
+### FIX 1 (HP centrality) + FIX 2 (School placement) — COMPLETE
+**Commit:** `a8ce905`
+
+**Root cause — HP:** `place_all_facilities()` estimated the shelter centroid from
+`parcel.bounds`, but `place_shelters()` uses `inset.bounds` (parcel buffered by −35 m).
+On irregular or large parcels the gap is significant; HP landed near the parcel edge.
+The previous fix (commit `e2e9102`) only worked on the 400×300 m rectangular test
+fixture, not on real irregular sites.
+
+**Root cause — School:** `_grid_place()` distributes schools over the FULL parcel
+bounding box before shelters exist. On sparse parcels (small population / large site)
+schools land in the empty zone, visually isolated from shelters.
+
+**Fix:** New `reposition_facilities_after_shelter_placement(site, facilities, shelter_result)`
+in `src/layout_engine.py`, called from `_run_placement()` in `app.py` BEFORE the
+community facility merge (so `shelter_result["community_latrines"]` is still accessible
+for HE4 enforcement).
+
+- `_reposition_hp()`: computes actual shelter centroid, rebuilds excluded geometry
+  (shelter footprints + community latrines with 6 m buffer), calls `_nudge()` from
+  the centroid outward (step=4 m, max_rings=12). Falls back to original if no gap found.
+- `_reposition_schools()`: computes shelter centroid bounding box + 30 m margin,
+  clips to parcel, calls `_grid_place()` on that region (shelter footprints excluded).
+  Falls back to original if not all schools can be placed.
+
+Tests updated: `test_hp_bias.py` now calls `reposition_facilities_after_shelter_placement`
+and asserts HP within 30 m of shelter centroid. `test_schools_placement.py` likewise.
+All 25 tests green.
+
+### FIX 3 — Logo clipping on non-first pages — COMPLETE
+**Commit:** `1dfa623`
+
+**Root cause:** Streamlit's `stHeader` is `position:fixed` at the top of the viewport
+(~46 px tall). Our CSS sets `padding-top: 1rem` on `.block-container`. On the first
+page load the brand CSS has not yet been applied (Streamlit uses its default ~4 rem),
+so the logo is fully visible. On every subsequent stage render our 1 rem override is
+active and the fixed bar overlaps the top ~30 px of the 48 px brand SVG, showing only
+the bottom half.
+
+**Fix:** Changed `header[data-testid="stHeader"]` rule in `src/brand.py` from
+`background-color: #EFEBE0` to `display: none !important`. The bar was already
+invisible (same colour as page); removing it from flow also removes the overlap.
+`#MainMenu` and `footer` were already hidden; this is consistent.
+
+No logic changes. UI fix — confirm visually on every stage.
+
+### FIX 4 — Browser-tab favicon — COMPLETE
+**Commit:** `1897623`
+
+Added `_hamlet_favicon()` to `app.py`: generates a 64×64 RGBA PIL Image of the Hamlet
+logomark (8 indigo rounded rectangles + terracotta circle, parameters mirroring
+`src/brand.py`'s SVG). Passed as `page_icon=` to `st.set_page_config()`.
+`page_title` changed from `"Hamlet — Refugee Camp Layout"` to `"Hamlet"`.
+
+PIL 12.2.0 confirmed available in the venv; `ImageDraw.rounded_rectangle` requires
+≥ 8.2.0.
+
+### Regression suite at session end
+All 25 tests (13 module-level + 12 pytest) green after every commit.
+One clean Streamlit instance running on port 8505 (PID 37224).
+
+---
+
 ## Date: 25 June 2026 — Seven-fix autonomous session
 
 ### Session overview
