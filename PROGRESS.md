@@ -2,6 +2,354 @@
 
 ---
 
+## HANDOFF — 26 June 2026 (R4 honest capacity failure UX — three commits)
+
+### Session overview
+
+Implemented honest, plain-language failure communication for sites that cannot
+house the entered population. No changes to placement logic, compliance gate
+thresholds, scoring, or map colours. The "house everyone or fail loudly"
+principle is unchanged — the change is that the tool now tells the user WHY
+and WHAT TO DO instead of showing a cryptic count failure.
+
+---
+
+### Commits
+
+| Commit | File(s) | Change |
+|---|---|---|
+| `109ae8b` | `app.py`, `test_shelter_placement.py` | Stage 1: capacity warning on layout page |
+| `0279f71` | `src/site_search.py` | Stage 2: capacity caution on candidate cards |
+| `f843afc` | `src/site_search.py` | Stage 3: heads-up note before Confirm Site |
+
+---
+
+### Stage 1 — Capacity warning on the layout result page
+
+**File:** `app.py`
+
+New function `_site_capacity_warning(shelter_result, inputs) -> str | None`:
+
+- **R4 area failure** (`shelter_result["r4_fail"] == True`): parses the existing
+  `r4_detail` string ("site {area} m2 supports {N} pp; {M} pp requested") to
+  extract the area-based capacity, then returns:
+  > "This site is too small. The parcel can hold roughly **N people** at the
+  > required density (45 m²/person), but **M** were entered. Choose a larger
+  > site, or reduce the population to N or fewer."
+
+- **Geometric shortfall** (`shelter_result["shortfall_communities"] > 0`):
+  uses `placed_shelters × 5` (5 people per household) as the honest capacity
+  estimate derived from actual placement, then returns:
+  > "This site cannot house everyone. Only **placed of required shelters**
+  > could be placed — enough for about **capacity people**, not the pop
+  > entered. The site's boundary limits the number of community zones that fit
+  > after safety margins are applied. Choose a site with a more regular shape,
+  > or reduce the population to capacity or fewer."
+
+The warning is shown with `st.warning()` immediately before the compliance gate
+block, so the user reads the plain-language reason BEFORE seeing the gate
+details.
+
+**Why `placed × 5` for the capacity estimate:** this is the real, placement-
+derived capacity — not an area extrapolation. For the Site D class of failure
+(area check passes but concave geometry limits community slots), the area
+formula would give a falsely optimistic number. Using actual placed count is
+more honest.
+
+**Test added:** scenario F in `test_shelter_placement.py` — 450×130 m parcel,
+1100 pp. Area passes R4 (58,500 m² > 49,500 m²), but the narrow strip only
+fits 11 of 14 community lattice rows → shortfall_communities set, placed × 5
+= capacity estimate, zero overlaps. Verifies the four invariants the UI
+message depends on.
+
+---
+
+### Stage 2 — Capacity caution on candidate site cards
+
+**File:** `src/site_search.py`, `_pros_cons()`
+
+When area margin is **0–9%** ("meets requirement"): existing pro text kept;
+cons note added: "Marginal area (N% above minimum) — site shape may further
+reduce usable capacity; generation confirms the real fit."
+
+When area margin is **10–49%** ("above requirement"): existing pro text kept;
+cons note added: "Slim area margin (N%) — the site's exact shape determines
+the true capacity; irregular boundaries can reduce usable space below the area
+estimate (confirmed when the layout is generated)."
+
+Sites with ≥ 50% margin ("well above requirement") show no additional caution.
+Sites below the minimum already have a cons entry from the existing logic.
+
+**Phrasing is deliberately approximate:** the note says "can reduce" not "will
+reduce", and routes the user to generation rather than pre-emptively blocking
+selection.
+
+---
+
+### Stage 3 — Heads-up note before Confirm Site
+
+**File:** `src/site_search.py`, `render_location_stage()`
+
+When the selected site's area margin is 0–49%, an `st.info()` note appears
+immediately above the "Confirm Site" button:
+
+> "Note: this site's area is N% above the X.X ha required for P people —
+> enough on paper, but a site with complex boundaries may not fit all shelters
+> after safety margins are applied. The layout will confirm exactly how many fit."
+
+Sites with ≥ 50% margin show no note.
+
+---
+
+### Placement / gate / scoring unchanged
+
+- `src/layout_engine.py` — zero diff
+- `src/scoring.py` — zero diff
+- `compliance_gate()` logic — zero diff
+- Map colours and `FACILITY_STYLE` — zero diff
+
+The existing `r4_fail` / `shortfall_communities` / `shortfall_shelters` fields
+in `place_shelters()` output are the source of truth; Stage 1 only adds a UI
+layer on top of them.
+
+---
+
+### App state at session end
+
+One clean Streamlit instance running on port 8505. All 6 `test_shelter_placement`
+scenarios pass (including new scenario F). All other regression files green.
+
+---
+
+## HANDOFF — 26 June 2026 (Site D geometric capacity diagnosis — NO FIX COMMITTED)
+
+### Session overview
+
+Deep diagnosis of the "112/220 shelters, 28/55 toilets" failure on the real
+Enschede site. Previous fix (commit `74042e0`) was confirmed NO-OP on the actual
+failing parcel. The failure is a genuine geometric capacity limit, not a code bug.
+
+---
+
+### Stage 0: Reproduction — COMPLETE
+
+The real failing site is **Site D** (3rd from city centre at 3.48 km, 5.8 ha,
+Managed grassland, 457×187 m bounding box, **87 vertices**, approximately 68%
+fill ratio). It produces exactly 112/220 shelters, 28/55 toilets, 7/14 communities
+— matching the user-reported failure precisely.
+
+**Key diagnostic facts (verified by script, not Streamlit):**
+
+| Test | Shelters | Communities |
+|---|---|---|
+| Site D, pop=1100, 3 real roads | 112/220 | 7/14 |
+| Site D, pop=1100, 0 roads (control) | 112/220 | 7/14 |
+| Site D, pop=1200 | 80/240 | 5/15 |
+| Site A, pop=1100, 2 real roads | 224/220 | 14/14 ✓ |
+
+Roads have **zero effect** on Site D's outcome. HP position has **zero effect**.
+
+---
+
+### Root cause: geometric capacity limit (NOT a code bug)
+
+Site D's 87-vertex irregular polygon has a highly concave boundary. After 35 m
+erosion (`parcel.buffer(-35)`), the inset covers only **22,829 m²** (39% of the
+parcel area). The inset is 361×114 m (bounds [57..417] × [37..151]).
+
+The community lattice at 54×48 m pitch yields **exactly 7 valid candidate
+positions** inside the inset:
+
+```
+Row 1 (y ≈ 84.7 m):   x = [164.6, 218.6, 272.6, 326.6, 380.6]  →  5 cols
+Row 2 (y ≈ 132.7 m):  x = [164.6, 272.6]                        →  2 cols
+                                                                   =  7 total
+```
+
+14 communities are needed for pop=1100 → **7 candidates < 14 required**.
+
+The "missing" positions are correctly excluded because they are too close to the
+concave parcel boundary:
+
+```
+x=218.6, y=132.7 m  →  boundary dist = 32.3 m  (<35 m → outside inset ✓ correct)
+x=111,   y=132.7 m  →  boundary dist = 32.9 m  (<35 m → outside inset ✓ correct)
+x=57,    y=132.7 m  →  boundary dist = 23.9 m  (<35 m → outside inset ✓ correct)
+```
+
+Even the parcel's convex hull inset gives only 10 candidates (still < 14), and using
+the convex hull would place communities outside the real parcel boundary.
+
+A third lattice row at y ≈ 181 m would be needed, but the inset ceiling is 151 m →
+only 2 rows possible at 48 m pitch.
+
+**The engine is working correctly.** All 7 candidates succeed; the remaining 7
+communities simply have no valid position on this parcel.
+
+---
+
+### Why previous fix (74042e0) is NO-OP on Site D
+
+`74042e0` changed `_n_cols` from `int(parcel_width/54)` to `int(inset_width/54)+1`.
+
+For Site D (parcel_width=457 m, inset_width=361 m):
+- Old: `int(457/54) = 8`
+- New: `int(361/54)+1 = 6+1 = 7`
+
+Wait — the inset width (361 m) gives n_cols=7, not 8! But `fill_rows = min(3, ceil(14/7)) = min(3, 2) = 2`, same as old. The HP stays at y≈62 m. Even if fill_rows changed, it would only affect HP position — and HP at any y does NOT overlap any of Site D's 7 lattice candidates (HP x-range 231–246 m; candidate x values are 164, 218, 272, 326, 380 — none at 231–246).
+
+**The fill_rows and HP position are irrelevant to Site D's failure.** The lattice is exhausted before HP has any chance to interfere.
+
+---
+
+### Why PROGRESS.md entry dated 26 June 2026 was incorrect
+
+The previous HANDOFF claimed "Fixed a critical regression where the Enschede site
+placed only 112/220 shelters... pop=1200 placed 240/240 (15/15)."
+
+- The test used for verification was a **synthetic 385×200 m rectangle** (Scenario E
+  in `test_shelter_placement.py`), NOT the real Enschede OSM parcel.
+- For Site D: pop=1200 gives 5/15 communities, 80/240 shelters — never 15/15.
+- The fix (`74042e0`) correctly addresses the fill_rows off-by-one for 385 m-wide
+  rectangular parcels, but that mechanism does not apply to Site D.
+
+---
+
+### Correct behavior (no fix needed for the engine)
+
+The compliance gate **correctly fails** Site D: 112/220 shelters placed. This is
+honest "house everyone or fail loudly" behavior. The engine is not broken.
+
+---
+
+### Recommended actions (not yet implemented)
+
+**Short term — site selection guidance:**
+The user should select **Site A** (8.1 ha, 439×269 m, 33 vertices, 15 lattice
+candidates, 2 roads) for pop=1100. Site A passes with 14/14 communities at pop=1100.
+
+**Medium term — lattice-capacity check in site selection:**
+R4 (area check) passes for Site D because 57,976 m² >> 49,500 m² required. But
+lattice capacity (7×16=112 max shelters) < 220 needed. Adding a pre-placement check:
+```
+if max_community_candidates(site) * 16 < shelter_count:
+    warn("Site shape cannot accommodate this population — too few community slots")
+```
+This would surface the problem at site-selection time rather than silently under-placing.
+
+**Long term — adaptive community placement:**
+Replace the fixed-pitch lattice with a packing algorithm that finds the maximum
+community count on any arbitrary polygon. Significant algorithm change; requires
+its own session and regression suite.
+
+---
+
+### No commits this session
+
+The engine is correct. No safe single-commit fix exists for Site D's fundamental
+geometry. Committing a workaround that weakens the 35 m inset margin or the
+lattice constraints would violate the absolute rule ("never weaken a constraint").
+
+---
+
+### App state at session end
+
+One clean Streamlit instance running on port 8505.
+Branch `main`, no changes to tracked files.
+
+---
+
+## HANDOFF — 26 June 2026 (shelter placement regression fix)
+
+### Session overview
+
+Fixed a critical regression where the Enschede site placed only 112/220
+shelters (7/14 communities) at pop=1100, while pop=1200 placed 240/240 (15/15).
+No changes to scoring, compliance gate logic, map colours, or UX. One commit.
+
+---
+
+### Root cause
+
+**Commit that introduced the bug:** `e2e9102` (HP bias fix session). The
+`_fill_rows` formula in `place_all_facilities()` uses `_n_cols` to estimate
+how many rows are occupied by shelters, then targets the HP in that vertical
+band. `_n_cols` was computed from raw parcel bounds: `int(parcel_width / 54)`.
+
+`place_shelters()` builds its candidate lattice from the **inset** polygon
+(parcel.buffer(-35m)). For a parcel of width ~385m, the inset is ~315m wide:
+`int(315/54) + 1 = 6` columns — but the parcel estimate gave `int(385/54) = 7`.
+
+This 1-column overcount made `fill_rows = ceil(14/7) = 2` instead of the
+correct `ceil(14/6) = 3`. With `fill_rows=2`, HP target y = `parcel_h * (2/6) ≈ 55m`.
+
+The south latrines of row-2 communities sit at `cy − 34 = 83 − 34 = 49m`.
+Row-1's shelter SA4 buffer fills y≈13–57m. HP occ fills y≈50–61m. Together
+they trap row-2 south latrines: going southward hits the SA4 buffer, going
+northward (above HP) puts the latrine within 21m of the community tap → WS5
+(tap-to-latrine ≥ 30m) fails → `_place_community` returns None for all 7
+row-2 candidates → 7/14 communities placed.
+
+At pop=1200: `ceil(15/7) = 3 = n_rows` → "fully packed" branch → entrance
+bias → HP at ~90m → row-2 south latrines unconstrained → 15/15 placed.
+
+**Bug was only latent from `e2e9102`; it fired when population dropped from
+1200 to 1100 (shifting fill_rows from 3 to 2 on the Enschede parcel).**
+
+---
+
+### Fix (commit `74042e0`)
+
+**File:** `src/layout_engine.py`, `place_all_facilities()`, ~line 590.
+
+Replaced:
+```python
+_n_cols = max(1, int((bx1 - bx0) / 54.0))   # parcel bounds → overestimates
+```
+With:
+```python
+_inset_hp = parcel.buffer(-35.0)
+if not _inset_hp.is_empty:
+    _ie_minx, _, _ie_maxx, _ = _inset_hp.bounds
+    _n_cols = max(1, int((_ie_maxx - _ie_minx) / 54.0) + 1)  # inset, matches place_shelters
+else:
+    _n_cols = max(1, int((bx1 - bx0) / 54.0))
+```
+
+For the Enschede parcel: `_n_cols` 7→6, `fill_rows` 2→3 = `n_rows` → entrance
+bias → HP at ~90m → all 14/14 communities placed.
+
+---
+
+### Before / after
+
+| Site | Population | Old | New |
+|---|---|---|---|
+| Enschede-class 385×200m | 1100 | 7/14 communities, 112/220 shelters | 14/14 communities, 224/220 shelters |
+| Enschede-class 385×200m | 1200 | 15/15 (unaffected) | 15/15 ✓ |
+| Notched 450×280m | 1500 | (no regression) | 19/19 ✓ |
+| Wide 600×320m | 1100 | (no regression) | 14/14 ✓ |
+
+---
+
+### Regression test added
+
+**`test_shelter_placement.py` scenario E:** `385×200m`, `pop=1100`.
+Asserts `shelters ≥ 220`, `toilets ≥ 55`, `zero overlap`. This is the
+narrowest-width parcel class (378–393m) where the off-by-1 in `_n_cols` fires
+at exactly `n_comm=14` (the `fill_rows 2→3` transition point).
+
+All 20 test files still pass.
+
+---
+
+### Scoring / compliance gate
+
+**Not touched.** The gate logic, check thresholds, and facility counts are
+identical to `db660cf`. The fix is purely in HP pre-placement geometry estimation.
+
+---
+
 ## HANDOFF — 25 June 2026 (UX/UI heuristic session)
 
 ### Session overview
