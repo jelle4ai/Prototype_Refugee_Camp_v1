@@ -657,38 +657,39 @@ def render_location_stage() -> None:
             "Try a more specific name below."
         )
 
-    with st.expander(
-        "Search / change location",
-        expanded=not st.session_state["ss2_geocoded"],
-    ):
-        c1, c2 = st.columns([4, 1])
-        new_name = c1.text_input(
-            "Place name", value=st.session_state["ss2_city"],
-            key="ss2_name_input", label_visibility="collapsed",
-            placeholder="e.g. Enschede, Netherlands",
-        )
-        if c2.button("Search", key="btn_ss2_geocode", use_container_width=True):
-            result = geocode_city(new_name)
-            if result:
-                st.session_state.update({
-                    "ss2_city":          new_name,
-                    "ss2_geocoded":      True,
-                    "ss2_city_lat":      result[0],
-                    "ss2_city_lon":      result[1],
-                    "ss2_geocode_error": "",
-                    "ss2_search_done":   False,
-                    "ss2_candidates":    [],
-                    "ss2_search_error":  "",
-                    "ss2_selected":      None,
-                    "ss2_focused":       None,
-                    "ss2_roads_done":    False,
-                    "ss2_roads_m":       [],
-                    "ss2_roads_error":   "",
-                    "ss2_roads_cache":   {},   # new city -> labels refer to different parcels
-                })
-                st.rerun()
-            else:
-                st.error(f'Could not geocode "{new_name}". Add the country name and retry.')
+    # Location search — always visible (Nielsen #1 visibility, #6 recognition over recall)
+    if st.session_state.get("ss2_geocoded"):
+        st.caption(f"Location: **{st.session_state['ss2_city']}** — update below to change")
+    else:
+        st.caption("Enter a location to begin site search:")
+    c1, c2 = st.columns([4, 1])
+    new_name = c1.text_input(
+        "Place name", value=st.session_state["ss2_city"],
+        key="ss2_name_input", label_visibility="collapsed",
+        placeholder="e.g. Enschede, Netherlands",
+    )
+    if c2.button("Search", key="btn_ss2_geocode", use_container_width=True):
+        result = geocode_city(new_name)
+        if result:
+            st.session_state.update({
+                "ss2_city":          new_name,
+                "ss2_geocoded":      True,
+                "ss2_city_lat":      result[0],
+                "ss2_city_lon":      result[1],
+                "ss2_geocode_error": "",
+                "ss2_search_done":   False,
+                "ss2_candidates":    [],
+                "ss2_search_error":  "",
+                "ss2_selected":      None,
+                "ss2_focused":       None,
+                "ss2_roads_done":    False,
+                "ss2_roads_m":       [],
+                "ss2_roads_error":   "",
+                "ss2_roads_cache":   {},   # new city -> labels refer to different parcels
+            })
+            st.rerun()
+        else:
+            st.error(f'Could not geocode "{new_name}". Add the country name and retry.')
 
     if not st.session_state["ss2_geocoded"]:
         st.info("Enter a location above to start searching for candidate sites.")
