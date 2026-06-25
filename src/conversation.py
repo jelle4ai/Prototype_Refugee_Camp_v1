@@ -57,7 +57,8 @@ WHAT YOU MAY DO:
   (4) planned sanitation approach (e.g. portable toilets, pit latrines, sewer). \
   Do not re-ask a service field that is already listed under ALREADY KNOWN.
 - If asked about site selection, share these general criteria: flat land, near existing \
-  roads, not flood-prone, accessible to services, away from industrial or conflict hazards.
+  roads, away from natural hazards (floods, earthquakes, landslides), accessible to \
+  services, away from industrial or conflict hazards.
 - Acknowledge values the user has already entered; do not re-ask for anything listed \
   under ALREADY KNOWN below.
 
