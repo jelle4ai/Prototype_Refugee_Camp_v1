@@ -3,6 +3,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 import plotly.graph_objects as go
 from math import cos, radians
+from PIL import Image, ImageDraw
 from src.conversation import render_input_stage
 from src.layout_engine import (
     place_shelters, place_all_facilities, place_roads,
@@ -18,7 +19,34 @@ from src.summary import render_summary_stage
 from src.feedback import classify_feedback, MOVABLE_FACILITY_KEYS
 from src.brand import apply_brand, render_brand_header
 
-st.set_page_config(page_title="Hamlet — Refugee Camp Layout", layout="wide")
+def _hamlet_favicon() -> Image.Image:
+    """Generate the Hamlet logomark as a 64×64 RGBA PNG for use as page_icon."""
+    size = 64
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    sc = size / 132.0          # viewBox is 132×132 (−66 to +66)
+    off = 66.0 * sc            # shift origin to image centre
+    indigo     = (31, 71, 136, 255)   # #1F4788
+    terracotta = (194, 96, 63, 255)   # #C2603F
+    # 8 rounded rectangles mirroring the SVG mark
+    rects = [
+        (-7, -53), (25.5, -39.5), (39, -7), (25.5, 25.5),
+        (-7,  39), (-39.5, 25.5), (-53, -7), (-39.5, -39.5),
+    ]
+    rr = max(1, round(3 * sc))   # rx=3 in SVG coords → pixels
+    for rx, ry in rects:
+        x0 = rx * sc + off
+        y0 = ry * sc + off
+        x1 = x0 + 14 * sc
+        y1 = y0 + 14 * sc
+        d.rounded_rectangle([(x0, y0), (x1, y1)], radius=rr, fill=indigo)
+    # Terracotta circle (r=21 in SVG coords)
+    r = 21 * sc
+    d.ellipse([(off - r, off - r), (off + r, off + r)], fill=terracotta)
+    return img
+
+
+st.set_page_config(page_title="Hamlet", page_icon=_hamlet_favicon(), layout="wide")
 
 STAGES = ["input", "location", "summary", "layout"]
 
