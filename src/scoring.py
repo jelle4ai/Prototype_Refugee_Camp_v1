@@ -394,10 +394,10 @@ def _c4_latrine_quality(shelters, latrines, parcel):
 
 
 def _c5_school_quality(shelters, schools, requirements, parcel):
-    """Component 5 (weight 3): capacity adequacy (ED1) + comfort margin (ED3) + separation (ED5)."""
+    """Component 5 (weight 3): capacity adequacy (ED1) + comfort margin (ED3)."""
     sc_req = requirements.get("schools", {}).get("count", 0)
     if sc_req == 0:
-        return 10, "No schools required (ED3/ED5 N/A)"
+        return 10, "No schools required (ED3 N/A)"
     if not schools:
         return 0, f"{sc_req} school(s) required but none placed — ED3"
     if not shelters:
@@ -408,31 +408,17 @@ def _c5_school_quality(shelters, schools, requirements, parcel):
     mean_comfort  = sum(max(0.0, 1000 - min(_dist(sc, cc) for cc in sc_cens))
                         for sc in sh_cens) / len(sh_cens)
     comfort_score = mean_comfort / 1000 * 10
-    if len(schools) == 1:
-        sep_score     = 10
-        min_pair_dist = None
-        sep_note      = "1 school"
-    else:
-        min_pair_dist = min(_dist(a, b)
-                            for i, a in enumerate(sc_cens)
-                            for j, b in enumerate(sc_cens)
-                            if j > i)
-        sep_score = min(10, round(min_pair_dist / 200 * 10))
-        sep_note  = f"min pair dist {min_pair_dist:.0f} m"
-    sub = max(0, min(10, round(0.50 * cap_score + 0.35 * comfort_score + 0.15 * sep_score)))
+    sub = max(0, min(10, round(0.50 * cap_score + 0.50 * comfort_score)))
     hint = ""
     if sub < 10:
         if cap_score < 10:
             hint = f" To improve: {sc_req - len(schools)} more school(s) needed for the school-age population (ED1)."
         elif comfort_score < 7:
             hint = f" To improve: move schools closer to shelters — mean distance is {1000 - mean_comfort:.0f} m from the 1,000 m threshold (ED3)."
-        elif sep_score < 7 and len(schools) > 1 and min_pair_dist is not None:
-            hint = f" To improve: schools are only {min_pair_dist:.0f} m apart — spreading them further would improve coverage (ED5)."
         else:
             hint = " To improve: minor adjustment to school placement."
     return sub, (
-        f"Capacity {len(schools)}/{sc_req} schools; mean ED3 comfort {mean_comfort:.0f} m; "
-        f"{sep_note} (ED1/ED3/ED5){hint}"
+        f"Capacity {len(schools)}/{sc_req} schools; mean ED3 comfort {mean_comfort:.0f} m (ED1/ED3){hint}"
     )
 
 
