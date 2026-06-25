@@ -924,6 +924,16 @@ def render_location_stage() -> None:
     }
 
     st.divider()
+    sel_margin = sel.get("margin_pct", 100)
+    if 0 <= sel_margin < 50:
+        req_ha  = sel["required_area_m2"] / 10_000
+        pop     = inputs.get("population", 0)
+        st.info(
+            f"**Note:** this site's area is {sel_margin:.0f}% above the "
+            f"{req_ha:.1f} ha required for {pop:,} people — enough on paper, "
+            f"but a site with complex boundaries may not fit all shelters after "
+            f"safety margins are applied. The layout will confirm exactly how many fit."
+        )
     if st.button(
         "Confirm site", type="primary",
         use_container_width=True, key="btn_ss2_confirm",
