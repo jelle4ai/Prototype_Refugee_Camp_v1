@@ -119,9 +119,10 @@ hr {
     border-width: 1px 0 0 0 !important;
 }
 
-/* Streamlit top header bar — matches page background */
+/* Hide Streamlit's fixed top bar — it sits above the content and clips
+   the brand logo once our padding-top: 1rem override is active. */
 header[data-testid="stHeader"] {
-    background-color: #EFEBE0 !important;
+    display: none !important;
 }
 
 /* Hide Streamlit chrome for presentation */
