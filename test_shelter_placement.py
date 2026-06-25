@@ -132,6 +132,17 @@ run_scenario("D. Deliberately too-small parcel (60 x 60 m, 2000 pp)",
              [(0, 0), (60, 0), (60, 60), (0, 60)],
              population=2000, expect_full_fill=False)
 
+# E. HP off-by-one regression — width 385 m makes int(385/54)=7 cols (parcel)
+#    but inset is 315 m wide → only 6 columns fit (int(315/54)+1=6).
+#    At pop=1100: n_comm=14.  Old code: fill_rows=ceil(14/7)=2 → HP at y≈50 m,
+#    landing in the south-latrine band of row-2 communities (cy-34=49 m) →
+#    WS5 failures → ~7/14 communities placed.
+#    New code: n_cols from inset → fill_rows=ceil(14/6)=3=n_rows → entrance
+#    bias → HP at y≈75 m, south latrines clear → all 14/14 communities placed.
+run_scenario("E. HP off-by-one regression (385 x 200 m, 1100 pp)",
+             [(0, 0), (385, 0), (385, 200), (0, 200)],
+             population=1100, expect_full_fill=True)
+
 print("=" * 70)
 if all_ok:
     print("ALL CHECKS PASSED")

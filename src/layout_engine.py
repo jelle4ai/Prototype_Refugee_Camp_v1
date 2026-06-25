@@ -587,7 +587,16 @@ def place_all_facilities(site: dict, requirements: dict) -> dict:
     bx0, by0, bx1, by1 = parcel.bounds
     _parcel_h  = by1 - by0
     _n_comm    = max(1, ceil(requirements.get("shelter_units", {}).get("count", 0) / 16))
-    _n_cols    = max(1, int((bx1 - bx0) / 54.0))
+    # Use inset bounds (matching place_shelters' lattice, not parcel bounds) to
+    # avoid an off-by-one in _n_cols for parcels where parcel_width % 54 is small.
+    # The off-by-one made fill_rows 1 too low, placing HP in the south-latrine
+    # band of row-2 communities (cy-34 m) and triggering WS5 failures there.
+    _inset_hp  = parcel.buffer(-35.0)
+    if not _inset_hp.is_empty:
+        _ie_minx, _, _ie_maxx, _ = _inset_hp.bounds
+        _n_cols = max(1, int((_ie_maxx - _ie_minx) / 54.0) + 1)
+    else:
+        _n_cols = max(1, int((bx1 - bx0) / 54.0))
     _n_rows    = max(1, int(_parcel_h / 48.0))
     _fill_rows = min(_n_rows, ceil(_n_comm / _n_cols))
     if _fill_rows < _n_rows:
