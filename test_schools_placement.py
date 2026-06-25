@@ -32,7 +32,10 @@ import sys
 from math import ceil
 
 sys.path.insert(0, ".")
-from src.layout_engine import place_all_facilities, place_shelters
+from src.layout_engine import (
+    place_all_facilities, place_shelters,
+    reposition_facilities_after_shelter_placement,
+)
 from src.scoring import compliance_gate
 
 
@@ -73,6 +76,7 @@ reqs = {
 facilities = place_all_facilities(site, reqs)
 occupied_geo = facilities.pop("_occupied_geo", None)
 sr = place_shelters(site, reqs, occupied_geo=occupied_geo)
+facilities = reposition_facilities_after_shelter_placement(site, facilities, sr)
 facilities["water_points"].extend(sr.pop("community_water", []))
 facilities["toilets"].extend(sr.pop("community_latrines", []))
 facilities["washing_facilities"].extend(sr.pop("community_washing", []))

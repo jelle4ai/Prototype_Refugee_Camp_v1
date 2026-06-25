@@ -9,7 +9,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from math import sqrt, ceil
 from shapely.geometry import Polygon
 
-from src.layout_engine import place_all_facilities
+from src.layout_engine import (
+    place_all_facilities, place_shelters,
+    reposition_facilities_after_shelter_placement,
+)
 from src.scoring import compliance_gate
 
 
@@ -139,17 +142,18 @@ def test_hp_compliance_passes():
 
 def test_hp_closer_to_actual_shelter_centroid():
     """
-    Full layout: HP must end up closer to the shelter centroid
-    than the bare parcel centroid would be.
-    Uses south entrance (road at y=0). Shelters cluster north.
+    Full layout with two-pass repositioning: HP must end up within 30 m of
+    the actual shelter centroid.
+    Uses south entrance (road at y=0).
     """
-    from src.layout_engine import place_shelters
     import math
 
     site = _parcel_site(road=[(-50, 0), (450, 0)])
     reqs = _reqs(population=1200)
     fac  = place_all_facilities(site, reqs)
-    shelter_result = place_shelters(site, reqs, fac.get("_occupied_geo"))
+    occ  = fac.pop("_occupied_geo", None)
+    shelter_result = place_shelters(site, reqs, occ)
+    fac  = reposition_facilities_after_shelter_placement(site, fac, shelter_result)
     shelters = shelter_result.get("shelters", [])
     assert shelters, "No shelters placed"
 
@@ -157,23 +161,20 @@ def test_hp_closer_to_actual_shelter_centroid():
     assert hp and hp[0]["corners_m"], "HP not placed"
 
     hx, hy = _centroid(hp[0]["corners_m"])
-    parcel_cx, parcel_cy = 200.0, 150.0  # centroid of 400x300 parcel
 
     sh_cens = [_centroid(s["corners_m"]) for s in shelters]
     shelt_cx = sum(p[0] for p in sh_cens) / len(sh_cens)
     shelt_cy = sum(p[1] for p in sh_cens) / len(sh_cens)
 
-    dist_hp_to_shelt  = math.sqrt((hx - shelt_cx) ** 2 + (hy - shelt_cy) ** 2)
-    dist_cen_to_shelt = math.sqrt((parcel_cx - shelt_cx) ** 2 + (parcel_cy - shelt_cy) ** 2)
+    dist_hp_to_shelt = math.sqrt((hx - shelt_cx) ** 2 + (hy - shelt_cy) ** 2)
 
-    assert dist_hp_to_shelt < dist_cen_to_shelt, (
+    assert dist_hp_to_shelt < 30.0, (
         f"HP ({hx:.1f},{hy:.1f}) is {dist_hp_to_shelt:.1f} m from shelter centroid "
-        f"({shelt_cx:.1f},{shelt_cy:.1f}), NOT closer than bare parcel centroid "
-        f"({parcel_cx},{parcel_cy}) which is {dist_cen_to_shelt:.1f} m away."
+        f"({shelt_cx:.1f},{shelt_cy:.1f}) — expected < 30 m after repositioning."
     )
     print(
-        f"  PASS  HP ({hx:.1f},{hy:.1f}) is {dist_hp_to_shelt:.1f} m from shelter centroid "
-        f"vs parcel centroid {dist_cen_to_shelt:.1f} m away"
+        f"  PASS  HP ({hx:.1f},{hy:.1f}) is {dist_hp_to_shelt:.1f} m from shelter "
+        f"centroid ({shelt_cx:.1f},{shelt_cy:.1f})"
     )
 
 

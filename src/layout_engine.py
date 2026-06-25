@@ -14,6 +14,12 @@ place_shelters(site, requirements, occupied_geo=None) -> dict
   SH6 (≥2 m between shelters): grid gap_unit=2.0 + sentinel 0.01 m buffer.
   SA4 (latrines ≥6 m from shelters): enforced via 6 m latrine buffer in occupied_geo.
 
+reposition_facilities_after_shelter_placement(site, facilities, shelter_result) -> dict
+  Post-shelter two-pass fix.
+  Moves HP to the actual shelter centroid (HE3).
+  Re-places schools within the populated shelter region (ED3).
+  Call BEFORE merging community_water/latrines/washing back into facilities.
+
 optimise_facilities(site, reqs, facilities, shelter_result, roads, max_iter=10) -> (dict, list)
   Greedy coordinate-descent: nudges each movable facility, accepts if partial score improves.
   Deterministic (no randomness). Never introduces overlaps. Returns (facilities, move_log).
@@ -1012,6 +1018,161 @@ def place_shelters(site: dict,
         out["shortfall_communities"] = shortfall_comms
         out["shortfall_shelters"]    = shortfall_sh
     return out
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Post-shelter repositioning  (FIX 1: HP centroid; FIX 2: schools in shelter area)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _reposition_hp(site: dict, facilities: dict, shelter_result: dict) -> dict:
+    """
+    Move the health post to the actual shelter centroid.
+
+    The initial placement in place_all_facilities() estimates the shelter
+    centroid from parcel bounds, which is wrong on irregular parcels.  After
+    place_shelters() we know the real centroid, so we can reposition exactly.
+
+    HE4 enforced: community latrines excluded with 6 m clearance.
+    Shelter footprints excluded so HP lands in a gap, not on a shelter.
+    Falls back to original position if no valid gap is found.
+    """
+    shelters = shelter_result.get("shelters", [])
+    hp_items = facilities.get("health_post", [])
+    if not shelters or not hp_items or not hp_items[0].get("corners_m"):
+        return facilities
+
+    cxs, cys = [], []
+    for s in shelters:
+        c = s.get("corners_m")
+        if c:
+            cxs.append((c[0][0] + c[2][0]) / 2.0)
+            cys.append((c[0][1] + c[2][1]) / 2.0)
+    if not cxs:
+        return facilities
+    sc_x = sum(cxs) / len(cxs)
+    sc_y = sum(cys) / len(cys)
+
+    parcel = ShapelyPolygon(site["parcel_polygon_m"])
+
+    # roads + non-HP facilities
+    occ = None
+    for road in (site.get("roads_m") or []):
+        if len(road) >= 2:
+            occ = _union_add(occ, _ShapelyLine(road).buffer(1.0))
+    for key in ("food_distribution", "community_space", "administrative_area",
+                "schools", "worship_facility"):
+        for item in facilities.get(key, []):
+            if item.get("corners_m"):
+                occ = _union_add(occ, ShapelyPolygon(item["corners_m"]), clearance=0.5)
+
+    # shelter footprints (batch union for speed)
+    s_bufs = [ShapelyPolygon(s["corners_m"]).buffer(0.5)
+              for s in shelters if s.get("corners_m")]
+    if s_bufs:
+        sh_u = unary_union(s_bufs)
+        occ = sh_u if occ is None else occ.union(sh_u)
+
+    # community latrines — HE4: HP must be ≥ 6 m away
+    lt_bufs = [ShapelyPolygon(lt["corners_m"]).buffer(6.0)
+               for lt in shelter_result.get("community_latrines", [])
+               if lt.get("corners_m")]
+    if lt_bufs:
+        lt_u = unary_union(lt_bufs)
+        occ = lt_u if occ is None else occ.union(lt_u)
+
+    new_corners = _nudge(parcel, sc_x, sc_y, 15.0, 10.0,
+                         step=4.0, max_rings=12, occupied=occ)
+    if new_corners is not None:
+        facilities["health_post"] = [{"corners_m": new_corners}]
+    return facilities
+
+
+def _reposition_schools(site: dict, facilities: dict, shelter_result: dict) -> dict:
+    """
+    Re-place schools inside the actual shelter region.
+
+    The initial _grid_place() distributes schools over the full parcel bounding
+    box before shelters exist.  On sparse parcels (small population, large
+    site) schools land in empty areas far from shelters.  After shelter
+    placement we know the populated extent and can constrain placement to it.
+
+    Schools are placed within the shelter centroid bounding box + 30 m margin,
+    clipped to the parcel.  The shelter footprints and facilities are excluded
+    so schools land in the gaps (community open areas / parcel edge margin).
+
+    Falls back to the original placement if all valid cells are blocked.
+    """
+    shelters = shelter_result.get("shelters", [])
+    schools = facilities.get("schools", [])
+    sc_req = len(schools)
+    if not shelters or sc_req == 0:
+        return facilities
+
+    cxs, cys = [], []
+    for s in shelters:
+        c = s.get("corners_m")
+        if c:
+            cxs.append((c[0][0] + c[2][0]) / 2.0)
+            cys.append((c[0][1] + c[2][1]) / 2.0)
+    if not cxs:
+        return facilities
+
+    pad = 30.0
+    parcel = ShapelyPolygon(site["parcel_polygon_m"])
+    s_region = ShapelyPolygon([
+        (min(cxs) - pad, min(cys) - pad),
+        (max(cxs) + pad, min(cys) - pad),
+        (max(cxs) + pad, max(cys) + pad),
+        (min(cxs) - pad, max(cys) + pad),
+    ]).intersection(parcel)
+    if s_region.is_empty or s_region.area < 1.0:
+        return facilities
+
+    # roads + all non-school facilities (using updated HP position after _reposition_hp)
+    occ = None
+    for road in (site.get("roads_m") or []):
+        if len(road) >= 2:
+            occ = _union_add(occ, _ShapelyLine(road).buffer(1.0))
+    for key in ("health_post", "food_distribution", "community_space",
+                "administrative_area", "worship_facility"):
+        for item in facilities.get(key, []):
+            if item.get("corners_m"):
+                occ = _union_add(occ, ShapelyPolygon(item["corners_m"]), clearance=0.5)
+
+    s_bufs = [ShapelyPolygon(s["corners_m"]).buffer(0.5)
+              for s in shelters if s.get("corners_m")]
+    if s_bufs:
+        sh_u = unary_union(s_bufs)
+        occ = sh_u if occ is None else occ.union(sh_u)
+
+    lt_bufs = [ShapelyPolygon(lt["corners_m"]).buffer(0.5)
+               for lt in shelter_result.get("community_latrines", [])
+               if lt.get("corners_m")]
+    if lt_bufs:
+        lt_u = unary_union(lt_bufs)
+        occ = lt_u if occ is None else occ.union(lt_u)
+
+    new_schools = _grid_place(s_region, sc_req, 20.0, 15.0,
+                              occupied=occ, step_mult=2.0)
+    if len(new_schools) == sc_req:
+        facilities["schools"] = new_schools
+    return facilities
+
+
+def reposition_facilities_after_shelter_placement(
+    site: dict, facilities: dict, shelter_result: dict
+) -> dict:
+    """
+    Two-pass post-shelter repositioning.  Call from _run_placement BEFORE
+    merging community_water / community_latrines / community_washing.
+
+    FIX 1 — HP to actual shelter centroid (HE3).
+    FIX 2 — Schools re-placed inside the populated shelter region (ED3).
+    Mutates and returns facilities.
+    """
+    facilities = _reposition_hp(site, facilities, shelter_result)
+    facilities = _reposition_schools(site, facilities, shelter_result)
+    return facilities
 
 
 # ─────────────────────────────────────────────────────────────────────────────

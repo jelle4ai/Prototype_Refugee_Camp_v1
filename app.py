@@ -8,6 +8,7 @@ from src.layout_engine import (
     place_shelters, place_all_facilities, place_roads,
     optimise_facilities, move_facility, FACILITY_STYLE,
     MOVE_DEFAULT_DISTANCE_M,
+    reposition_facilities_after_shelter_placement,
 )
 from src.scoring import score_layout, compliance_gate
 from src.location import render_location_stage
@@ -218,6 +219,11 @@ def _run_placement(site: dict, reqs: dict) -> tuple[dict, dict, dict]:
     facilities   = place_all_facilities(site, reqs)
     occupied_geo = facilities.pop("_occupied_geo", None)
     shelter_result = place_shelters(site, reqs, occupied_geo=occupied_geo)
+
+    # Two-pass fix: reposition HP to actual shelter centroid (FIX 1) and
+    # re-place schools inside the populated region (FIX 2).
+    # Must happen BEFORE community merge so community_latrines is still accessible.
+    facilities = reposition_facilities_after_shelter_placement(site, facilities, shelter_result)
 
     # Merge community-placed facilities into the main facilities dict so that
     # the compliance gate and road builder see them. Must happen before roads.
