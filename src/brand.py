@@ -192,7 +192,8 @@ _HAMLET_HEADER_HTML = """
   margin-bottom: 24px;
 ">
   <svg viewBox="-66 -66 132 132" width="48" height="48"
-       role="img" aria-label="Hamlet mark" style="flex-shrink:0;">
+       role="img" aria-label="Hamlet mark"
+       style="flex-shrink:0; display:block; overflow:visible;">
     <g fill="#1F4788">
       <rect x="-7"    y="-53"   width="14" height="14" rx="3"/>
       <rect x="25.5"  y="-39.5" width="14" height="14" rx="3"/>
