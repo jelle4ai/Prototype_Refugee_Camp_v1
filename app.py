@@ -352,7 +352,8 @@ def stage_layout():
 
     # ── Optimiser button (Step 2) ─────────────────────────────────────────────
     col_opt, col_reset = st.columns([2, 1])
-    if col_opt.button("Optimise layout", key="btn_optimise",
+    if col_opt.button("Optimise layout", key="btn_optimise", type="primary",
+                      use_container_width=True,
                       help="Run greedy improvement loop (10 iterations max)"):
         before_layout = {"shelter_result": shelter_result, "facilities": facilities, "roads": roads}
         score_before = score_layout(before_layout, site, reqs)["quality"]["total"]
@@ -380,7 +381,7 @@ def stage_layout():
         _clear_feedback_state()
         st.rerun()
 
-    if col_reset.button("Reset layout", key="btn_reset_layout"):
+    if col_reset.button("Reset layout", key="btn_reset_layout", use_container_width=True):
         del st.session_state["layout_result"]
         _clear_feedback_state()
         st.rerun()

@@ -260,8 +260,8 @@ def _render_quick_inputs(inputs: dict) -> None:
     # ── Breakdown boxes with a single Set button ──────────────────
     breakdown_fields = [f for f in ("men", "women", "children") if needs[f]]
     if breakdown_fields:
-        col_count = len(breakdown_fields) + 1
-        cols = st.columns([1] * col_count)
+        # Wider columns for inputs, narrower for Set button so grouping is clear
+        cols = st.columns([2] * len(breakdown_fields) + [1])
         drafts: dict[str, int] = {}
         for i, field in enumerate(breakdown_fields):
             drafts[field] = int(cols[i].number_input(
