@@ -1,4 +1,5 @@
 import copy
+import re
 import streamlit as st
 import streamlit.components.v1 as components
 import plotly.graph_objects as go
@@ -243,6 +244,46 @@ def _layout_map(site: dict,
     return fig
 
 
+def _site_capacity_warning(shelter_result: dict, inputs: dict) -> str | None:
+    """Return plain-language explanation when a site cannot house the entered population."""
+    pop = inputs.get("population", 0)
+
+    if shelter_result.get("r4_fail"):
+        detail = shelter_result.get("r4_detail", "")
+        try:
+            capacity = int(detail.split("supports")[1].split("pp")[0].strip())
+        except (IndexError, ValueError):
+            capacity = 0
+        if capacity:
+            return (
+                f"**This site is too small.** The parcel can hold roughly "
+                f"**{capacity:,} people** at the required density (45 m²/person), "
+                f"but **{pop:,}** were entered. "
+                f"Choose a larger site, or reduce the population to {capacity:,} or fewer."
+            )
+        return (
+            f"**This site is too small for {pop:,} people.** "
+            f"Choose a larger site or reduce the population."
+        )
+
+    sc = shelter_result.get("shortfall_communities", 0)
+    if sc > 0:
+        placed   = shelter_result.get("placed", 0)
+        required = shelter_result.get("required", 0)
+        capacity = placed * 5
+        return (
+            f"**This site cannot house everyone.** "
+            f"Only **{placed} of {required} shelters** could be placed — "
+            f"enough for about **{capacity:,} people**, not the {pop:,} entered. "
+            f"The site's boundary limits the number of community zones that fit "
+            f"after safety margins are applied. "
+            f"Choose a site with a more regular shape, or reduce the population to "
+            f"{capacity:,} or fewer."
+        )
+
+    return None
+
+
 def _run_placement(site: dict, reqs: dict) -> tuple[dict, dict, dict]:
     """
     Place facilities (CS5 order) then shelters (block/community hierarchy),
@@ -426,6 +467,11 @@ def stage_layout():
             f"{partial_note} — quality score {move_summary['before']} → "
             f"{move_summary['after']} ({arrow} {delta:+d})"
         )
+
+    # ── Site capacity warning — shown before the gate so the user sees WHY ──────
+    _cap_msg = _site_capacity_warning(shelter_result, inputs)
+    if _cap_msg:
+        st.warning(_cap_msg)
 
     # ── Compliance gate (Step 3) ──────────────────────────────────────────────
     _layout = {"shelter_result": shelter_result, "facilities": facilities, "roads": roads}

@@ -43,7 +43,8 @@ def _check(label, cond, detail=""):
     return cond
 
 
-def run_scenario(label, parcel_pts, population, expect_full_fill, shelter_area_m2=17.5):
+def run_scenario(label, parcel_pts, population, expect_full_fill, shelter_area_m2=17.5,
+                 expect_geometric_shortfall=False):
     n_shelters = population // 5
     site = {"parcel_polygon_m": parcel_pts, "roads_m": []}
     parcel = _Poly(parcel_pts)
@@ -76,6 +77,24 @@ def run_scenario(label, parcel_pts, population, expect_full_fill, shelter_area_m
         print(f"  R4 capacity message: {sr['r4_detail']}")
         _check("R4 fails honestly (graceful shortfall, not silent under-placement)",
                not expect_full_fill)
+        return
+
+    if expect_geometric_shortfall:
+        sc = sr.get("shortfall_communities", 0)
+        placed = sr.get("placed", 0)
+        print(f"  Geometric shortfall: {sc} communities, {sr.get('shortfall_shelters', 0)} shelters")
+        print(f"  Placed {placed}/{n_shelters} shelters — capacity ~{placed * 5} people")
+        _check("R4 passes (area sufficient)", not sr.get("r4_fail"))
+        _check("shortfall_communities set", sc > 0, f"sc={sc}")
+        _check("some shelters placed (partial fill, not total failure)",
+               placed > 0, f"placed={placed}")
+        _check("capacity estimate positive", placed * 5 > 0)
+        overlap_check = next(c for c in
+                             compliance_gate({"shelter_result": sr, "facilities": facilities,
+                                             "roads": place_roads(site, sr, facilities)},
+                                            site, reqs)["checks"]
+                             if c["name"] == "No footprint overlaps")
+        _check("zero footprint overlap", overlap_check["pass"], overlap_check["detail"])
         return
 
     roads = place_roads(site, sr, facilities)
@@ -142,6 +161,17 @@ run_scenario("D. Deliberately too-small parcel (60 x 60 m, 2000 pp)",
 run_scenario("E. HP off-by-one regression (385 x 200 m, 1100 pp)",
              [(0, 0), (385, 0), (385, 200), (0, 200)],
              population=1100, expect_full_fill=True)
+
+# F. Geometric capacity shortfall — R4 passes but concave shape limits lattice slots.
+#    450×130 m parcel: area=58,500 m² > 49,500 m² (R4 passes for 1100 pp).
+#    Inset after 35 m margin: 380×60 m → only 1 lattice row (48 m pitch, 8 cols)
+#    for 14 communities needed → shortfall_communities set, some shelters placed.
+#    This is the Site D class of failure: honest partial placement, not silent.
+run_scenario(
+    "F. Geometric shortfall (450 x 130 m narrow strip, 1100 pp) — R4 passes, shape limits",
+    [(0, 0), (450, 0), (450, 130), (0, 130)],
+    population=1100, expect_full_fill=False, expect_geometric_shortfall=True,
+)
 
 print("=" * 70)
 if all_ok:
