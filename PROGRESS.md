@@ -1,5 +1,88 @@
 # Progress Log
 
+## Date: 25 June 2026 — Seven-fix autonomous session
+
+### Session overview
+Six fixes applied (FIX 7 was a placeholder, never assigned). Full regression suite
+green before and after each commit.
+
+### FIX 1 — Shelter/toilet shortfall (ALREADY DONE — verified)
+**Commit:** `9332adf` / `e2e9102` (prior sessions)
+
+`test_community_retry.py` passes 15/15 communities, 240/240 shelters, 60/60 toilets.
+The HP bias fix in `e2e9102` moved the health post off the community-lattice row,
+eliminating the CS5 collision that caused the 224/240 shortfall. No further code change
+needed. Confirmed by full regression suite at session start.
+
+### FIX 2 — HP not central (ALREADY DONE — verified)
+**Commit:** `e2e9102` (prior session)
+
+`test_hp_bias.py` — all 6 tests pass, including `test_hp_closer_to_actual_shelter_centroid`.
+HP now targets the estimated shelter-cluster centroid (fill_rows fraction of parcel height).
+No further code change needed.
+
+### FIX 3 — Remove school separation reward (COMPLETE)
+**Commit:** `45c2c0e`
+
+Removed the 15% separation sub-score (ED5) from `_c5_school_quality()` in `src/scoring.py`.
+Old formula: `round(0.50*cap + 0.35*comfort + 0.15*sep)`. New: `round(0.50*cap + 0.50*comfort)`.
+
+**Why:** The separation term pushed schools as far apart as possible, which directly conflicts
+with placing them close to shelters (ED3). Two schools each near their own shelter cluster
+scored lower than two schools pushed to opposite ends of the parcel.
+
+**Numeric changes from removal:**
+- 1-school camp, shelter 1000 m away: 6 → 5 (comfort=0, cap=10 → 0.5×10=5, was 0.5×10+0.15×10=6.5→6)
+- 2 co-located schools, both 50 m from shelters: 9 → 10 (sep was penalising the close pair)
+- 1 of 2 schools placed (cap=5, comfort=10): 8 → 8 (unchanged, banker's rounding)
+
+**Test:** `test_scoring_c5_school_quality.py` updated — 9 assertions, all pass.
+
+**⚠ NOTE FOR REVIEWER:** Appendix E row 5 lists "ED5 separation" as a scored sub-component.
+This commit removes it. Please confirm against the thesis text and edit Appendix E row 5
+if the removal is correct.
+
+### FIX 4 — Logo SVG clipped (COMPLETE)
+**Commit:** `b3578c9`
+
+Added `display:block; overflow:visible` to the `<svg>` element in `_HAMLET_HEADER_HTML`
+in `src/brand.py`. `display:inline` (the default) creates a baseline-alignment gap that
+can hide the top of the mark. `overflow:visible` prevents any ancestor `overflow:hidden`
+from clipping the 48×48 element.
+
+UI-only — needs visual confirmation in the browser.
+
+### FIX 5 — Natural hazards wording (COMPLETE)
+**Commit:** `9ff4ac1`
+
+Changed the AI assistant system prompt in `src/conversation.py` from "not flood-prone"
+to "away from natural hazards (floods, earthquakes, landslides)". The AI was generating
+"natural disasters" (a broader, less precise term) because the prompt only said
+"not flood-prone" and left the AI to generalise. The explicit "natural hazards" phrase
+now guides the AI to use the correct humanitarian-sector term.
+
+Text-only — no logic or scoring affected.
+
+### FIX 6 — Live radius map at search-area step (COMPLETE)
+**Commit:** `acd4b5c`
+
+Added `_search_radius_fig()` to `src/site_search.py`: a Plotly Scattermapbox figure
+showing the city centre (terracotta marker) and the current search radius as an indigo
+circle. Called from `render_location_stage()` just before the early-return that fires
+when no search has been done yet — the circle shows immediately after geocoding and
+redraws live as the user moves the radius slider. Disappears once results arrive.
+
+Circle is a 72-point polygon in lat/lon space; zoom derived from `13 - log2(radius_km)*1.2`.
+Colours match Hamlet brand (#1F4788 indigo, #C2603F terracotta).
+
+UI-only — needs visual confirmation in the browser.
+
+### Regression suite at session end
+Full suite (22 module-level scripts + 12 pytest tests) green. All commits verified
+green before merge.
+
+---
+
 ## Date: 25 June 2026 — Hamlet rebrand CSS fixes
 
 ### Bug 1 — CSS injection fix (COMPLETE)
