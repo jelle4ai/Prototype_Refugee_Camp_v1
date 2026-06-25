@@ -2,6 +2,87 @@
 
 ---
 
+## HANDOFF — 25 June 2026 (UX/UI heuristic session)
+
+### Session overview
+
+Five UX improvements applied to the presentation/interaction layer, based on
+Nielsen's 10 heuristics and Shneiderman's 8 golden rules. No changes to
+`scoring.py`, `layout_engine.py` placement logic, the compliance gate, or any
+facility/map colours. One change per commit.
+
+---
+
+### Commits (this session)
+
+| Commit | Fix | Heuristics |
+|---|---|---|
+| `e523089` | STAGE 1: location search always visible on site-selection page | Nielsen #1, #6 |
+| `4334c4d` | STAGE 2: replace 6 individual Save buttons with single "Save all changes" | Nielsen #4, #5; Shneiderman #8 |
+| `f9caf5c` | STAGE 4: persistent stage indicator (N of 4) below header | Nielsen #1, #3 |
+| `ce89ea9` | STAGE 3: sticky action bar on review page (status + Generate button) | Nielsen #1 |
+| `b695abd` | STAGE 5: Set button width grouping; Optimise layout → primary style | Nielsen #4; Shneiderman #8 |
+
+---
+
+### What each commit did
+
+**`e523089` — STAGE 1: location visible by default**
+Previously the "Search / change location" expander was collapsed once a city
+was geocoded, hiding the primary action on the site-selection page. Removed the
+expander wrapper entirely. The place-name field and Search button are now always
+visible inline; a caption shows the current location when geocoded or prompts
+the user when not. File: `src/site_search.py`.
+
+**`4334c4d` — STAGE 2: single Save model on review page**
+The review page had 6 individual "Save" buttons (cultural_notes, special_needs,
+cause, water_source, power_source, sanitation) plus a "Update" button (population)
+— 7 separate explicit commits for different fields. Replaced all with one "Save
+all changes" button placed after the four review sections. Climate and Duration
+already auto-committed on click and are unchanged. Population area recomputation
+still happens (via the existing top-of-render `compute_required_area()` call)
+when the population total changes after a save. File: `src/summary.py`.
+
+**`f9caf5c` — STAGE 4: stage indicator**
+A `st.caption()` below the brand header now shows "Stage N of 4 — Stage name"
+on every page. Muted text so it doesn't compete with page content; uses the
+existing `STAGES` mapping. File: `app.py`.
+
+**`ce89ea9` — STAGE 3: sticky action bar**
+A fixed-position bottom bar injected via `st.markdown(unsafe_allow_html=True)`:
+- When required fields are missing: cream bar listing what is still needed.
+- When all fields are present: indigo bar with a "Generate the layout →" button.
+The sticky button works via an inline `onclick` that finds the real Streamlit
+Generate button in the DOM and dispatches a native click event, preserving all
+session-state handling. Main content gets 76 px bottom padding so the bar does
+not obscure the in-page Generate button. File: `src/summary.py`.
+
+**`b695abd` — STAGE 5: polish**
+- `src/conversation.py`: number-input column widths are now `[2] * n_fields + [1]`
+  (was `[1] * (n_fields+1)`) so the Set button is visually narrower than the
+  fields it applies to, making the grouping clear.
+- `app.py`: "Optimise layout" button now `type="primary"` and
+  `use_container_width=True`; "Reset layout" also gets `use_container_width=True`
+  for consistent fill in the 2:1 column split.
+
+---
+
+### No-change rules observed
+
+- `src/scoring.py` — zero diff (confirmed `git diff`)
+- `src/layout_engine.py` — zero diff
+- Compliance gate logic — zero diff
+- Facility/map colours (`FACILITY_STYLE`, Plotly traces) — zero diff
+
+---
+
+### App state at session end
+
+One clean Streamlit instance running on port 8505 (PID 24520).
+Branch `main`, up to date with `origin/main` (5 new commits ahead — not pushed).
+
+---
+
 ## HANDOFF — 25 June 2026 (irregular-site bug session)
 
 ### Session overview
