@@ -20,15 +20,20 @@ from src.feedback import classify_feedback, MOVABLE_FACILITY_KEYS
 from src.brand import apply_brand, render_brand_header
 
 def _hamlet_favicon() -> Image.Image:
-    """Generate the Hamlet logomark as a 64×64 RGBA PNG for use as page_icon."""
+    """Generate the Hamlet app-icon mark as a 64×64 RGBA PNG for use as page_icon."""
     size = 64
     img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
     sc = size / 132.0          # viewBox is 132×132 (−66 to +66)
     off = 66.0 * sc            # shift origin to image centre
     indigo     = (31, 71, 136, 255)   # #1F4788
+    cream      = (244, 241, 234, 255) # #F4F1EA
     terracotta = (194, 96, 63, 255)   # #C2603F
-    # 8 rounded rectangles mirroring the SVG mark
+    # App-icon background: indigo rounded square
+    pad = 2 * sc
+    bg_r = round(24 * sc)
+    d.rounded_rectangle([(pad, pad), (size - pad, size - pad)], radius=bg_r, fill=indigo)
+    # 8 rounded rectangles in cream
     rects = [
         (-7, -53), (25.5, -39.5), (39, -7), (25.5, 25.5),
         (-7,  39), (-39.5, 25.5), (-53, -7), (-39.5, -39.5),
@@ -39,7 +44,7 @@ def _hamlet_favicon() -> Image.Image:
         y0 = ry * sc + off
         x1 = x0 + 14 * sc
         y1 = y0 + 14 * sc
-        d.rounded_rectangle([(x0, y0), (x1, y1)], radius=rr, fill=indigo)
+        d.rounded_rectangle([(x0, y0), (x1, y1)], radius=rr, fill=cream)
     # Terracotta circle (r=21 in SVG coords)
     r = 21 * sc
     d.ellipse([(off - r, off - r), (off + r, off + r)], fill=terracotta)
