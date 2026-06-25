@@ -1080,8 +1080,26 @@ def _reposition_hp(site: dict, facilities: dict, shelter_result: dict) -> dict:
         lt_u = unary_union(lt_bufs)
         occ = lt_u if occ is None else occ.union(lt_u)
 
+    # community water taps and washing — HP footprint must not overlap them
+    # (no extra buffer; we only need to prevent literal footprint overlap)
+    wp_polys = [ShapelyPolygon(wp["corners_m"])
+                for wp in shelter_result.get("community_water", [])
+                if wp.get("corners_m")]
+    if wp_polys:
+        wp_u = unary_union(wp_polys)
+        occ = wp_u if occ is None else occ.union(wp_u)
+
+    wsh_polys = [ShapelyPolygon(wsh["corners_m"])
+                 for wsh in shelter_result.get("community_washing", [])
+                 if wsh.get("corners_m")]
+    if wsh_polys:
+        wsh_u = unary_union(wsh_polys)
+        occ = wsh_u if occ is None else occ.union(wsh_u)
+
+    # max_rings=20 → searches up to 80 m from centroid; covers sites where
+    # adjacent community shelter rings leave no free space within 48 m.
     new_corners = _nudge(parcel, sc_x, sc_y, 15.0, 10.0,
-                         step=4.0, max_rings=12, occupied=occ)
+                         step=4.0, max_rings=20, occupied=occ)
     if new_corners is not None:
         facilities["health_post"] = [{"corners_m": new_corners}]
     return facilities
