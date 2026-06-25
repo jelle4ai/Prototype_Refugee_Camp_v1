@@ -132,27 +132,12 @@ def _section_population(inputs: dict) -> None:
         f"**Total population:** {pop:,} &nbsp;|&nbsp; "
         f"**Required site area:** ~{req_ha:.1f} ha &nbsp; *(population × 45 m²)*"
     )
-    st.caption("Edit the breakdown below and click **Update** to recommit.")
+    st.caption("Edit the breakdown below and click **Save all changes** to apply.")
 
-    c1, c2, c3, c4 = st.columns([2, 2, 2, 1])
-    m_new = c1.number_input("Men",      min_value=0, step=100, value=m_cur, key="sum_men")
-    w_new = c2.number_input("Women",    min_value=0, step=100, value=w_cur, key="sum_women")
-    c_new = c3.number_input("Children", min_value=0, step=100, value=c_cur, key="sum_children")
-
-    if c4.button("Update", key="btn_sum_pop", use_container_width=True):
-        m = int(m_new)
-        w = int(w_new)
-        c = int(c_new)
-        inputs["men"]      = m
-        inputs["women"]    = w
-        inputs["children"] = c
-        new_pop = m + w + c
-        inputs["population"] = new_pop
-        if new_pop > 0:
-            result = compute_required_area(new_pop)
-            inputs["required_area_m2"] = result["total_area_m2"]
-            inputs["suggested_side_m"] = result["suggested_side_m"]
-        st.rerun()
+    c1, c2, c3 = st.columns(3)
+    c1.number_input("Men",      min_value=0, step=100, value=m_cur, key="sum_men")
+    c2.number_input("Women",    min_value=0, step=100, value=w_cur, key="sum_women")
+    c3.number_input("Children", min_value=0, step=100, value=c_cur, key="sum_children")
 
 
 # ── Section: context ──────────────────────────────────────────────────────────
@@ -209,14 +194,8 @@ def _section_context(inputs: dict) -> None:
         ("cultural_notes", "Cultural notes"),
         ("special_needs",  "Special needs"),
     ]:
-        cur  = inputs.get(field) or ""
-        wkey = f"sum_{field}"
-        tc, bc = st.columns([5, 1])
-        tc.text_input(label, value=cur, key=wkey, placeholder='e.g. "None specified"')
-        if bc.button("Save", key=f"btn_save_{field}", use_container_width=True):
-            raw = (st.session_state.get(wkey) or "").strip()
-            inputs[field] = raw if raw else None
-            st.rerun()
+        cur = inputs.get(field) or ""
+        st.text_input(label, value=cur, key=f"sum_{field}", placeholder='e.g. "None specified"')
 
 
 # ── Section: services ─────────────────────────────────────────────────────────
@@ -231,14 +210,8 @@ def _section_services(inputs: dict) -> None:
         ("power_source", "Power source",       "e.g. grid, generators, solar"),
         ("sanitation",   "Sanitation",         "e.g. pit latrines, portable toilets, sewer"),
     ]:
-        cur  = inputs.get(field) or ""
-        wkey = f"sum_{field}"
-        tc, bc = st.columns([5, 1])
-        tc.text_input(label, value=cur, key=wkey, placeholder=ph)
-        if bc.button("Save", key=f"btn_save_{field}", use_container_width=True):
-            raw = (st.session_state.get(wkey) or "").strip()
-            inputs[field] = raw if raw else None
-            st.rerun()
+        cur = inputs.get(field) or ""
+        st.text_input(label, value=cur, key=f"sum_{field}", placeholder=ph)
 
 
 # ── Section: selected site ────────────────────────────────────────────────────
@@ -317,6 +290,21 @@ def render_summary_stage() -> None:
             if st.button("Go to site selection →", key="btn_goto_site"):
                 st.session_state["stage"] = "location"
                 st.rerun()
+
+    # ── Single save for all editable text and number fields ───────────────────
+    if st.button("Save all changes", key="btn_save_all", use_container_width=True):
+        m = int(st.session_state.get("sum_men") or inputs.get("men") or 0)
+        w = int(st.session_state.get("sum_women") or inputs.get("women") or 0)
+        c = int(st.session_state.get("sum_children") or inputs.get("children") or 0)
+        inputs["men"]        = m
+        inputs["women"]      = w
+        inputs["children"]   = c
+        inputs["population"] = m + w + c
+        for field in ["cultural_notes", "special_needs",
+                      "cause", "water_source", "power_source", "sanitation"]:
+            raw = (st.session_state.get(f"sum_{field}") or "").strip()
+            inputs[field] = raw if raw else None
+        st.rerun()
 
     # ── Validation + generate button ──────────────────────────────────────────
     st.divider()
