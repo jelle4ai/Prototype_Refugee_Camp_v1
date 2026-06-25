@@ -700,6 +700,15 @@ def main():
         _scroll_to_top()
 
     render_brand_header()
+
+    _stage_labels = {
+        "input":    "Stage 1 of 4 — Information gathering",
+        "location": "Stage 2 of 4 — Site selection",
+        "summary":  "Stage 3 of 4 — Review and confirm",
+        "layout":   "Stage 4 of 4 — Layout result",
+    }
+    st.caption(_stage_labels.get(current_stage, ""))
+
     STAGE_HANDLERS[current_stage]()
 
 
