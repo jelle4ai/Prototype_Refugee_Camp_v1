@@ -366,8 +366,17 @@ def _pros_cons(c: dict) -> tuple[list[str], list[str]]:
         pros.append(f"{ha:.1f} ha — well above the {req_ha:.1f} ha needed ({m:.0f}% margin)")
     elif m >= 10:
         pros.append(f"{ha:.1f} ha — above the {req_ha:.1f} ha needed ({m:.0f}% margin)")
+        cons.append(
+            f"Slim area margin ({m:.0f}%) — the site's exact shape determines the "
+            f"true capacity; irregular boundaries can reduce usable space below the "
+            f"area estimate (confirmed when the layout is generated)"
+        )
     elif m >= 0:
         pros.append(f"{ha:.1f} ha — meets the {req_ha:.1f} ha requirement ({m:.0f}% margin)")
+        cons.append(
+            f"Marginal area ({m:.0f}% above minimum) — site shape may further reduce "
+            f"usable capacity; generation confirms the real fit"
+        )
     else:
         cons.append(
             f"Slightly below area requirement (estimated {ha:.1f} ha vs {req_ha:.1f} ha needed)"
