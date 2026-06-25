@@ -255,6 +255,51 @@ def _section_site(inputs: dict, site: dict) -> None:
         st.plotly_chart(_site_map(site), use_container_width=True)
 
 
+# ── Sticky action bar ─────────────────────────────────────────────────────────
+
+def _sticky_bar(gaps: list[str]) -> None:
+    """Fixed bottom bar: status when gaps exist; indigo+button when ready."""
+    padding = "<style>.block-container{padding-bottom:76px!important}</style>"
+    if gaps:
+        msg = "Still needed: " + ", ".join(gaps)
+        bar = (
+            f"{padding}"
+            "<div style='position:fixed;bottom:0;left:0;right:0;"
+            "background:#F4F1EA;border-top:2px solid #E0DACD;"
+            "padding:14px 28px;z-index:9999;"
+            "font-family:Inter,sans-serif;'>"
+            f"<span style='color:#8A8579;font-size:0.875rem;'>{msg}</span>"
+            "</div>"
+        )
+    else:
+        # onclick clicks the real Streamlit Generate button by text match
+        onclick = (
+            "(function(){"
+            "var b=Array.from(document.querySelectorAll('button'))"
+            ".find(function(x){return x.textContent.trim()==='Generate the layout'&&!x.disabled;});"
+            "if(b)b.click();"
+            "})();"
+        )
+        bar = (
+            f"{padding}"
+            "<div style='position:fixed;bottom:0;left:0;right:0;"
+            "background:#1F4788;border-top:2px solid #1F4788;"
+            "padding:14px 28px;z-index:9999;"
+            "display:flex;align-items:center;justify-content:space-between;"
+            "font-family:Inter,sans-serif;'>"
+            "<span style='color:#F4F1EA;font-size:0.875rem;font-weight:500;'>"
+            "All required information is present</span>"
+            f"<button onclick=\"{onclick}\" "
+            "style='background:#F4F1EA;color:#1F4788;border:none;"
+            "border-radius:8px;padding:10px 20px;cursor:pointer;"
+            "font-family:Inter,sans-serif;font-weight:600;font-size:0.9rem;'>"
+            "Generate the layout &#8594;"
+            "</button>"
+            "</div>"
+        )
+    st.markdown(bar, unsafe_allow_html=True)
+
+
 # ── Main render entry point ───────────────────────────────────────────────────
 
 def render_summary_stage() -> None:
@@ -270,6 +315,9 @@ def render_summary_stage() -> None:
         result = compute_required_area(pop)
         inputs["required_area_m2"] = result["total_area_m2"]
         inputs["suggested_side_m"] = result["suggested_side_m"]
+
+    # Sticky bar computed from committed state before edits in this render
+    _sticky_bar(_missing(inputs, site))
 
     # ── Sections ──────────────────────────────────────────────────────────────
     with st.container(border=True):
