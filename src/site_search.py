@@ -13,7 +13,7 @@ src.geocoding and re-exported from this module for downstream stages.
 from __future__ import annotations
 
 import time
-from math import cos, radians, sqrt
+from math import cos, log2, pi, radians, sin, sqrt
 
 import requests
 import streamlit as st
@@ -408,6 +408,44 @@ def _pros_cons(c: dict) -> tuple[list[str], list[str]]:
 
 # ── Plotly figures ────────────────────────────────────────────────────────────
 
+def _search_radius_fig(city_lat: float, city_lon: float, radius_km: float) -> go.Figure:
+    """Circle at the current search radius so the user can calibrate before searching."""
+    n = 72
+    lats, lons = [], []
+    for i in range(n + 1):
+        angle = 2 * pi * i / n
+        dlat = radius_km / 111.32 * cos(angle)
+        dlon = radius_km / (111.32 * cos(radians(city_lat))) * sin(angle)
+        lats.append(city_lat + dlat)
+        lons.append(city_lon + dlon)
+    zoom = max(7, min(13, round(13 - log2(max(1, radius_km)) * 1.2)))
+    fig = go.Figure([
+        go.Scattermapbox(
+            lat=lats, lon=lons,
+            mode="lines",
+            fill="toself",
+            fillcolor="rgba(31,71,136,0.08)",
+            line=dict(width=2, color="#1F4788"),
+            name=f"{radius_km} km search area",
+        ),
+        go.Scattermapbox(
+            lat=[city_lat], lon=[city_lon],
+            mode="markers",
+            marker=dict(size=10, color="#C2603F"),
+            name="City centre",
+        ),
+    ])
+    fig.update_layout(
+        mapbox=dict(style="open-street-map",
+                    center=dict(lat=city_lat, lon=city_lon), zoom=zoom),
+        height=350,
+        margin=dict(l=0, r=0, t=0, b=0),
+        legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01,
+                    bgcolor="rgba(255,255,255,0.85)", font=dict(color="black")),
+    )
+    return fig
+
+
 def _candidates_fig(
     candidates: list[dict],
     city_lat: float,
@@ -702,6 +740,10 @@ def render_location_stage() -> None:
         st.rerun()
 
     if not st.session_state["ss2_search_done"]:
+        st.plotly_chart(
+            _search_radius_fig(city_lat, city_lon, radius),
+            use_container_width=True,
+        )
         return
 
     # ── Search error ──────────────────────────────────────────────────────────
