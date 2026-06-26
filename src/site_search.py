@@ -366,22 +366,23 @@ def find_candidates(
             "margin_pct":       (area / required_area_m2 - 1.0) * 100,
         })
 
-    # Primary sort: distance from city centre (ascending).
-    # Area, roads, water are secondary and appear only in pros/cons text.
-    parcels.sort(key=lambda p: p["city_dist_m"])
-    top = parcels[:_MAX_CANDIDATES]
-
-    # Fast capacity estimate for each returned candidate (Shapely, no full placement).
-    # population is exact: required_area_m2 / 45 (from requirements_engine total_area_m2).
-    _pop_est = required_area_m2 / 45.0
-    for c in top:
+    # Capacity estimate for ALL qualifying parcels — needed before sorting so
+    # fitting sites can be ranked above non-fitting ones regardless of distance.
+    _pop_est      = required_area_m2 / 45.0
+    _n_comm_needed = ceil(_pop_est / _PP_PER_COMMUNITY)
+    for p in parcels:
         est_cap, est_comm = _estimate_capacity(
-            c["nodes_latlon"], c["centroid_lat"], c["centroid_lon"]
+            p["nodes_latlon"], p["centroid_lat"], p["centroid_lon"]
         )
-        c["est_capacity_pp"]  = est_cap
-        c["est_communities"]  = est_comm
-        _n_comm_needed       = ceil(_pop_est / _PP_PER_COMMUNITY)
-        c["fits_population"] = est_comm >= _n_comm_needed + _MIN_SPARE_SLOTS
+        p["est_capacity_pp"]  = est_cap
+        p["est_communities"]  = est_comm
+        p["fits_population"]  = est_comm >= _n_comm_needed + _MIN_SPARE_SLOTS
+
+    # Sort: fitting sites first (by city distance), then non-fitting (by city distance).
+    # Ensures that larger or more-suitable sites further out are not crowded out by
+    # nearer parcels that don't actually fit the population.
+    parcels.sort(key=lambda p: (0 if p["fits_population"] else 1, p["city_dist_m"]))
+    top = parcels[:_MAX_CANDIDATES]
 
     # Diagnostic — visible in the Streamlit server log
     print(
