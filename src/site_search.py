@@ -13,7 +13,7 @@ src.geocoding and re-exported from this module for downstream stages.
 from __future__ import annotations
 
 import time
-from math import cos, log2, pi, radians, sin, sqrt
+from math import ceil, cos, log2, pi, radians, sin, sqrt
 
 import requests
 import streamlit as st
@@ -40,10 +40,12 @@ _INSET_M          = 35.0   # WS5-derived boundary margin (same as engine)
 _COMM_PITCH_X     = 54.0   # community E-W centre-to-centre pitch (m)
 _COMM_PITCH_Y     = 48.0   # community N-S centre-to-centre pitch (m)
 _PP_PER_COMMUNITY = 80     # 16 families × 5 pp/family (Appendix F)
-# A site is selectable only when its estimated capacity exceeds population × this.
-# 1.15 absorbs CS5 facility collisions (can block ~5–15 % of lattice positions)
-# and multi-phase improvements not credited in the conservative Phase-0 estimate.
-_CAPACITY_BUFFER  = 1.15
+# A site is selectable only when its Phase-0 slot count >= n_communities_needed + this.
+# One spare slot absorbs a single CS5 facility collision at selection time.  A fixed
+# slot margin (rather than a percentage buffer) avoids false-negatives on tight-but-valid
+# sites: e.g. Site A has 15 Phase-0 slots for 14 communities needed (7 % spare), which
+# a 15 % percentage buffer incorrectly rejects.
+_MIN_SPARE_SLOTS  = 1
 
 _LAND_TYPES: dict[str, str] = {
     "farmland":           "Farmland",
@@ -378,7 +380,8 @@ def find_candidates(
         )
         c["est_capacity_pp"]  = est_cap
         c["est_communities"]  = est_comm
-        c["fits_population"]  = est_cap >= _pop_est * _CAPACITY_BUFFER
+        _n_comm_needed       = ceil(_pop_est / _PP_PER_COMMUNITY)
+        c["fits_population"] = est_comm >= _n_comm_needed + _MIN_SPARE_SLOTS
 
     # Diagnostic — visible in the Streamlit server log
     print(
