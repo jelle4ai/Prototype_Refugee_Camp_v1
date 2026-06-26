@@ -435,24 +435,31 @@ def _pros_cons(c: dict) -> tuple[list[str], list[str]]:
     pros: list[str] = []
     cons: list[str] = []
 
+    # Raw area note (kept brief; the capacity estimate below is the real signal)
     if m >= 50:
-        pros.append(f"{ha:.1f} ha — well above the {req_ha:.1f} ha needed ({m:.0f}% margin)")
-    elif m >= 10:
-        pros.append(f"{ha:.1f} ha — above the {req_ha:.1f} ha needed ({m:.0f}% margin)")
-        cons.append(
-            f"Slim area margin ({m:.0f}%) — the site's exact shape determines the "
-            f"true capacity; irregular boundaries can reduce usable space below the "
-            f"area estimate (confirmed when the layout is generated)"
-        )
+        pros.append(f"{ha:.1f} ha — well above the {req_ha:.1f} ha minimum")
     elif m >= 0:
-        pros.append(f"{ha:.1f} ha — meets the {req_ha:.1f} ha requirement ({m:.0f}% margin)")
+        pros.append(f"{ha:.1f} ha — above the {req_ha:.1f} ha minimum ({m:.0f}% margin)")
+    else:
         cons.append(
-            f"Marginal area ({m:.0f}% above minimum) — site shape may further reduce "
-            f"usable capacity; generation confirms the real fit"
+            f"Slightly below area minimum ({ha:.1f} ha vs {req_ha:.1f} ha needed)"
+        )
+
+    # Usable capacity estimate (accounts for 35 m margin + shape; replaces old
+    # "slim area margin" and "marginal area" cons which only looked at raw area)
+    est_cap  = c.get("est_capacity_pp", 0)
+    est_comm = c.get("est_communities", 0)
+    pop      = round(c["required_area_m2"] / 45.0)
+    if c.get("fits_population", True):
+        buffer_pct = round((est_cap / pop - 1) * 100) if pop > 0 else 0
+        pros.append(
+            f"Estimated usable capacity ~{est_cap:,} pp "
+            f"({est_comm} community slots after 35 m margin, {buffer_pct}% above required)"
         )
     else:
         cons.append(
-            f"Slightly below area requirement (estimated {ha:.1f} ha vs {req_ha:.1f} ha needed)"
+            f"Estimated usable capacity only ~{est_cap:,} pp — "
+            f"not enough for {pop:,} people after 35 m boundary margin and shape effects"
         )
 
     rd = c["road_dist_m"]
@@ -853,6 +860,16 @@ def render_location_stage() -> None:
             "Consider widening the search radius for more options."
         )
 
+    fits_count = sum(1 for c in candidates if c.get("fits_population", True))
+    pop_display = round(req_area / 45.0)
+    if fits_count == 0:
+        st.warning(
+            f"**No candidate site within {used_radius} km can comfortably fit "
+            f"{pop_display:,} people** after applying the 35 m safety margin and "
+            f"accounting for site shape. Consider widening the search radius or "
+            f"reducing the population."
+        )
+
     st.subheader(
         f"{len(candidates)} candidate site(s) found within **{used_radius} km** of city centre"
     )
@@ -868,6 +885,7 @@ def render_location_stage() -> None:
     for c in candidates:
         is_selected = (st.session_state["ss2_selected"] == c["label"])
         is_focused  = (st.session_state.get("ss2_focused") == c["label"])
+        fits        = c.get("fits_population", True)
 
         with st.container(border=True):
             h_col, show_col, sel_col = st.columns([3, 1.5, 1.5])
@@ -883,12 +901,22 @@ def render_location_stage() -> None:
                 use_container_width=True,
                 type="primary" if is_focused else "secondary",
             )
-            select_clicked = sel_col.button(
-                "Selected" if is_selected else "Select site",
-                key=f"btn_sel_{c['label']}",
-                use_container_width=True,
-                type="primary" if is_selected else "secondary",
-            )
+
+            if fits:
+                select_clicked = sel_col.button(
+                    "Selected ✓" if is_selected else "Select site",
+                    key=f"btn_sel_{c['label']}",
+                    use_container_width=True,
+                    type="primary" if is_selected else "secondary",
+                )
+            else:
+                sel_col.markdown(
+                    f"<div style='color:#b71c1c;font-size:0.82em;text-align:center;"
+                    f"padding:0.55em 0.3em;line-height:1.3'>"
+                    f"Too small<br/>for {pop_display:,} people</div>",
+                    unsafe_allow_html=True,
+                )
+                select_clicked = False
 
             pros, cons = _pros_cons(c)
             p_col, n_col = st.columns(2)
@@ -909,7 +937,7 @@ def render_location_stage() -> None:
             st.session_state["ss2_focused"] = None if is_focused else c["label"]
             st.rerun()
 
-        if select_clicked and not is_selected:
+        if select_clicked and not is_selected and fits:
             # Seed from the per-parcel cache rather than blanking to [] --
             # if this parcel's roads were already fetched successfully earlier
             # this session, a fresh fetch that then fails (e.g. a transient
@@ -997,15 +1025,15 @@ def render_location_stage() -> None:
     }
 
     st.divider()
-    sel_margin = sel.get("margin_pct", 100)
-    if 0 <= sel_margin < 50:
-        req_ha  = sel["required_area_m2"] / 10_000
-        pop     = inputs.get("population", 0)
+    est_cap  = sel.get("est_capacity_pp", 0)
+    est_comm = sel.get("est_communities", 0)
+    pop_conf = inputs.get("population", 0)
+    if est_cap > 0:
+        buffer_pct = round((est_cap / pop_conf - 1) * 100) if pop_conf > 0 else 0
         st.info(
-            f"**Note:** this site's area is {sel_margin:.0f}% above the "
-            f"{req_ha:.1f} ha required for {pop:,} people — enough on paper, "
-            f"but a site with complex boundaries may not fit all shelters after "
-            f"safety margins are applied. The layout will confirm exactly how many fit."
+            f"**Estimated capacity: ~{est_cap:,} people** "
+            f"({est_comm} community slots after 35 m margin, {buffer_pct:+d}% vs required). "
+            f"Generation will confirm the exact fit."
         )
     if st.button(
         "Confirm site", type="primary",
