@@ -139,6 +139,142 @@ Branch `main`. All 7 regression scenarios pass, 0.0 m2 overlap on all.
 
 ---
 
+## HANDOFF — 26 June 2026 (Honest site selection — capacity-based filtering)
+
+### Session objective
+
+Fix the disconnect between site selection and layout generation. Previously, the
+tool offered candidate sites based only on raw area (`population × 45 m²`), then
+failed at layout generation when an irregular site could not fit everyone after
+the 35 m inset margin and concave shape effects.
+
+Site D (5.8 ha, 87-vertex irregular polygon) passes the raw area check
+(`57,974 m² > 49,500 m²` for pop=1100) but was shown as a selectable site even
+though it only fits 9 communities (720 pp) — far below the 14 (1100 pp) needed.
+
+### What changed
+
+**No changes to placement logic, 35 m margins, WS5, CS5, compliance gate, or
+scoring.** All changes are in `src/site_search.py` (selection stage only).
+
+---
+
+#### Commit 1 — `0b4f74e`: `_estimate_capacity()` + enrich candidates
+
+Added constants after `_RADIUS_TIERS`:
+```
+_INSET_M          = 35.0   # must match engine's parcel.buffer(-35)
+_COMM_PITCH_X     = 54.0   # must match engine's lattice pitch
+_COMM_PITCH_Y     = 48.0
+_PP_PER_COMMUNITY = 80     # 16 families × 5 pp (Appendix F)
+_MIN_SPARE_SLOTS  = 1      # site fits iff n_phase0 >= n_comm_needed + 1
+```
+
+Added `_estimate_capacity(nodes_latlon, centroid_lat, centroid_lon) -> (cap_pp, n_slots)`:
+- Projects parcel polygon to local metres via `latlon_to_metres`
+- Applies `_Poly(pts).buffer(-35)` inset (matches engine exactly)
+- Counts 54×48 m Phase-0 lattice points inside using `inset.intersects(Point)`
+- Returns `n × _PP_PER_COMMUNITY`, n (conservative: Phase-0 only, no multi-phase bonus)
+- Lazy Shapely import inside function (no new module-level dependency)
+
+In `find_candidates()`, after building `top`:
+- Calls `_estimate_capacity` for each candidate
+- Stores `est_capacity_pp`, `est_communities`, `fits_population` on each dict
+- `fits_population = est_comm >= ceil(pop / 80) + 1`
+
+Updated `_pros_cons()`:
+- Replaces raw-area "slim margin" con with capacity estimate pro/con
+- Sites that FITS: pro shows estimated pp, slot count, % surplus
+- Sites that DON'T FIT: con shows estimated pp and explains the shortfall
+
+---
+
+#### Commit 2 — `dbaa34c`: UI changes in `render_location_stage()`
+
+Candidate cards:
+- "Show on map" button: ALL sites (including too-small ones)
+- "Select site" button: ONLY sites with `fits_population=True`
+- Too-small sites: red label "Too small for N people" in place of the button
+- Guard added to click handler: `if select_clicked and not is_selected and fits`
+
+"No sites fit" warning: shown before the candidate list when all sites are too small.
+
+Pre-confirm note: replaced raw-area margin info with estimated capacity and slot count.
+
+---
+
+#### Commit 3 — `d5620d7`: Switch from percentage buffer to slot-based buffer
+
+**Problem:** The initial `_CAPACITY_BUFFER = 1.15` percentage buffer incorrectly
+rejected Site A (8.1 ha, 15 Phase-0 slots for 14 communities needed = 7% spare):
+`15×80=1200pp < 1100×1.15=1265pp → false negative`.
+
+**Fix:** Replace percentage buffer with `_MIN_SPARE_SLOTS = 1`.
+A site fits iff `n_phase0 >= ceil(pop / 80) + 1`.
+
+Why a fixed slot margin, not a percentage:
+- Each slot = 80 pp. For 14 communities needed, one spare slot = 1/14 = 7% buffer.
+- A 15% percentage buffer requires 14×1.15=16.1 → 17 slots for pop=1100.
+  Site A only has 15 → false negative.
+- A fixed "+1 slot" absorbs a single CS5 collision at selection time.
+  Residual cases (e.g. Scenario F: 16 slots, 14 needed → offered but fails at
+  generation) are handled by the existing generation-stage shortfall message.
+
+---
+
+### Verification (live Overpass API, Enschede, pop=1100)
+
+| Site | Area | Phase-0 slots | Est. capacity | Fits? |
+|------|------|--------------|---------------|-------|
+| **A** | 8.1 ha | **15** | **1,200 pp** | **FITS** |
+| B | 4.9 ha | 4 | 320 pp | TOO SMALL |
+| C | 6.4 ha | 9 | 720 pp | TOO SMALL |
+| **D** | **5.8 ha** | **7** | **560 pp** | **TOO SMALL** |
+| E | 5.5 ha | 6 | 480 pp | TOO SMALL |
+
+Slot threshold: `ceil(1100/80)+1 = 15`. Site A (15 slots ≥ 15) FITS; Site D
+(7 slots < 15) correctly flagged TOO SMALL and NOT selectable.
+
+---
+
+### Tests updated / added
+
+**`test_capacity_estimator.py`** (new file — 7 cases, 21 assertions):
+- Case 1: 600×400 m, pop=2500 — clearly FITS
+- Case 2: 385×200 m, pop=1100 — Scenario E parcel, FITS
+- Case 3: 450×130 m, pop=1100 — Scenario F, borderline FITS (16 >= 15)
+- Case 4: 60×60 m — inset empty, 0 slots
+- Case 5: 200×80 m, pop=500 — TOO SMALL (3 < 8)
+- Case 6: 830×115 m, pop=1100 — Site-A proxy (15 slots ≥ 15), documents that
+  same site FAILS 15% percentage buffer (1200 < 1265), justifying slot switch
+- Case 7: 350×100 m, pop=1100 — Site-D proxy (6 slots), TOO SMALL
+
+**`test_shelter_placement.py`:** unchanged, all 7 scenarios still pass.
+
+---
+
+### Compliance unchanged
+
+- 35 m inset margin: unchanged
+- WS5, CS5, SA4, SH7: unchanged
+- `compliance_gate()`, `place_shelters()`, `place_all_facilities()`: zero diff
+- The capacity estimate is selection-only; it does NOT feed into the layout engine.
+
+---
+
+### Commits
+
+- `0b4f74e` — feat: `_estimate_capacity`, enrich candidates, update `_pros_cons`
+- `dbaa34c` — feat: disable non-fitting sites in UI; capacity note at confirm step
+- `d5620d7` — fix: slot-based buffer (replaces 15% percentage buffer); new test case
+
+### App state at session end
+
+Branch `main`. All regressions (7 placement scenarios + 21 estimator assertions)
+pass. Streamlit restarting on port 8505 — see below.
+
+---
+
 ## HANDOFF — 26 June 2026 (Site D usable-space diagnosis — DIAGNOSIS ONLY, NO FIX)
 
 ### Session objective
