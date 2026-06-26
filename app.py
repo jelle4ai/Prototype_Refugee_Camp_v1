@@ -516,6 +516,7 @@ def stage_layout():
         st.table(score_rows)
 
     # ── Map ───────────────────────────────────────────────────────────────────
+    st.subheader("Camp layout")
     st.plotly_chart(
         _layout_map(site, shelter_result["shelters"], facilities, roads),
         use_container_width=True,
