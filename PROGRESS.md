@@ -275,6 +275,127 @@ pass. Streamlit restarting on port 8505 — see below.
 
 ---
 
+## HANDOFF — 26 June 2026 (Search-radius bug — diagnosis and fix)
+
+### Session objective
+
+Fix: increasing the max search radius returns the same 5 candidate sites, never
+surfacing new or larger sites further out.
+
+### Diagnosis (STAGE 0)
+
+Two causes confirmed (both active, both fixed):
+
+**Cause (b) — ranking masks fitting sites already present in the search area**
+
+At tier=5 km Enschede, 33 qualifying parcels exist and 10 of them fit pop=1100.
+But the top-5 were sorted purely by city distance, so 4 non-fitting sites at
+2.64–3.56 km crowded out 4 fitting sites at 3.78–4.37 km:
+
+| Shown (old) | km | ha | slots | fits? |
+|---|---|---|---|---|
+| Site A | 2.60 | 8.1 | 15 | **FITS** |
+| Site B | 2.64 | 4.9 | 4 | too small |
+| Site C | 2.75 | 6.4 | 9 | too small |
+| Site D | 3.50 | 5.8 | 7 | too small |
+| Site E | 3.56 | 5.5 | 6 | too small |
+
+Hidden fitting sites (at 3.78, 4.08, 4.25, 4.37 km) were never surfaced.
+
+**Cause (c) — progressive early-stop ignores population fitness**
+
+The tier loop used `qualifying_count >= _MIN_CANDIDATES` as the early-stop:
+any tier with ≥ 3 area-qualifying parcels stopped the search. For Enschede,
+the 5 km tier always has ≥ 3 qualifying parcels → the search always stopped
+there regardless of `max_radius_km`. Tiers 10 km and 15 km were never queried.
+
+Quantified (live Overpass, Enschede, pop=1100):
+| Tier | Qualifying parcels | Fitting parcels | Old stop? | New stop? |
+|---|---|---|---|---|
+| 2 km | 1 | 0 | No (< 3) | No (fitting=0 < 3) |
+| 5 km | 33 | 10 | **YES (33 ≥ 3)** | YES (10 ≥ 3) — same for pop=1100 |
+| 10 km | — | — | never reached | reached if fitting=0 at 5 km |
+
+For `max_radius_km=10` or `=20`, the search always stopped at 5 km (old code).
+
+For a large population (e.g. pop=5000, req_slots=65): all 33 parcels at 5 km
+fail capacity check → `fitting_count=0 < 3` → search continues to 10 km.
+This is the meaningful behaviour change from fix (c).
+
+---
+
+### What changed
+
+**No changes to placement logic, margins, WS5, CS5, compliance gate, or
+scoring.** All changes are in `src/site_search.py` (search/selection stage only).
+
+#### Commit 1 — `00528ce`: fix(b) sort fitting candidates first
+
+In `find_candidates`, moved `_estimate_capacity` from running only on the
+top-5 to running on ALL qualifying parcels. Then changed the sort from:
+```python
+parcels.sort(key=lambda p: p["city_dist_m"])
+```
+to:
+```python
+parcels.sort(key=lambda p: (0 if p["fits_population"] else 1, p["city_dist_m"]))
+```
+Fitting sites now appear first (by distance), then non-fitting by distance.
+
+Result for Enschede pop=1100: all 5 shown sites are now fitting:
+
+| Site | km | ha | slots | fits? |
+|---|---|---|---|---|
+| A | 2.60 | 8.1 | 15 | **FITS** |
+| B | 3.78 | 9.6 | 15 | **FITS** |
+| C | 4.08 | 11.5 | 26 | **FITS** |
+| D | 4.25 | 10.6 | 20 | **FITS** |
+| E | 4.37 | 12.4 | 25 | **FITS** |
+
+#### Commit 2 — `7355ee9`: fix(c) fitting-count based early-stop
+
+Changed the tier loop early-stop condition from:
+```python
+if qualifying_count >= _MIN_CANDIDATES or tier >= max_radius_km:
+    break
+```
+to:
+```python
+if fitting_count >= _MIN_CANDIDATES or tier >= max_radius_km:
+    break
+```
+where `fitting_count` counts parcels that pass `_estimate_capacity >= req_slots`.
+`_estimate_capacity` is now called inside the tier loop for each qualifying parcel.
+
+For Enschede pop=1100 (10 fitting at 5 km), the stop behaviour is unchanged.
+For large populations where all nearby parcels are too small, the search now
+expands to the user's chosen `max_radius_km`.
+
+Added `_pop_est_loop` and `_req_slots_loop` before the tier loop.
+Updated the diagnostic print to show `(N fitting)` per search.
+
+---
+
+### Compliance / placement unchanged
+
+Capacity filter, 35 m margin, `compliance_gate`, `place_shelters`,
+`place_all_facilities`: zero diff.
+
+All 7 regression scenarios + 21 estimator assertions: **ALL PASS**.
+
+---
+
+### Commits
+
+- `00528ce` — fix(b): sort fitting candidates first; run estimator for all parcels
+- `7355ee9` — fix(c): fitting-count based early-stop
+
+### App state at session end
+
+Branch `main`. All regressions pass. One clean Streamlit instance on port 8505.
+
+---
+
 ## HANDOFF — 26 June 2026 (Site D usable-space diagnosis — DIAGNOSIS ONLY, NO FIX)
 
 ### Session objective
