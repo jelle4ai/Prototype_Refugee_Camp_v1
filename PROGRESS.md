@@ -2,6 +2,48 @@
 
 ---
 
+## HANDOFF — 27 June 2026 (Navigation + interaction — 5 commits)
+
+### Session objective
+
+Stage navigation, primary action visibility, and quick-inputs hierarchy.
+Hard boundary: NO placement, scoring, compliance gate, capacity, or site-search logic touched.
+Engine (`src/site_search.py`) not modified — stage 2 top button added via `app.py` wrapper only.
+
+### What changed (one commit each)
+
+| # | Commit | File(s) | Change |
+|---|--------|---------|--------|
+| 1 | `8821a18` | `app.py`, `src/brand.py` | Stepper nav bar: 4-step horizontal indicator at top of every stage. Completed steps are secondary ghost buttons that navigate back via `_navigate_to()` (clears `layout_result` + feedback state). Secondary button CSS added to brand.py (transparent/outlined, distinct from primary actions). |
+| 2 | `e384972` | `src/summary.py` | Removed unreliable JS-proxy sticky bar. Added real Streamlit generate buttons at TOP and BOTTOM of Review page — enabled only when `_missing()` returns empty. |
+| 3 | `a8f39e6` | `app.py`, `src/conversation.py` | Top-of-page primary action on Stages 1–3. Stage 1: disabled "Find a site" until `_all_collected()`. Stage 2: "Confirm site" appears after search completes, disabled until site selected. Stage 3: done in Commit 2. site_search.py untouched. |
+| 4 | `fc49122` | `src/conversation.py` | Reverted PIL disc avatars → original Streamlit robot/person defaults. Removed `_brand_avatar()` helper and PIL import. |
+| 5 | `5318879` | `src/conversation.py` | Quick inputs reframed as "Optional shortcuts — or describe in the chat". Smaller muted label; unselected toggle buttons already lighter via Commit 1 secondary CSS. |
+
+### Engine untouched confirmation
+
+No changes to: placement, scoring, compliance gate, capacity logic, site-search logic (`src/site_search.py`), or Plotly map facility colours.
+
+### Back-navigation data safety
+
+`_navigate_to(target_stage)` clears `layout_result` and feedback state whenever going before stage 4. This forces fresh generation on the next "Generate" click. `site` and `chat_history` are preserved (user can see and change them at the appropriate stages). Forward navigation through future stages (not yet reached) is blocked — stepper only allows clicking completed steps.
+
+### Visual review checklist
+
+- **Stepper** — load Stage 1; advance to Stage 2; stepper shows "✓ 1. Information gathering" as a ghost button; click it → back to Stage 1. Advance 1→2→3→4, click "✓ 2. Site selection" from Stage 4 → lands on Stage 2 with site selection intact.
+- **Stage 1** — "Find a site on the map" button visible immediately (greyed); fills greyed until all 9 fields collected, then activates.
+- **Stage 2** — after search completes, "Confirm site" appears at top; greyed until a candidate is clicked.
+- **Stage 3** — "Generate the layout" buttons at top AND bottom, both actually advance to Stage 4.
+- **Stage 4** — from Stage 4, stepper back to Stage 1: edit something; re-advance through stages; Stage 4 regenerates fresh layout (old one was cleared).
+- **Quick inputs** — muted "Optional shortcuts" label; unselected Warm/Cold/etc. buttons are outlined, not indigo slabs.
+- **Avatars** — chat shows original Streamlit robot and person icons (not coloured discs).
+
+### App state at session end
+
+Start clean: `streamlit run app.py --server.port 8505`
+
+---
+
 ## HANDOFF — 27 June 2026 (UI fixes — 7 cosmetic/bug commits)
 
 ### Session objective
