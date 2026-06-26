@@ -2,6 +2,51 @@
 
 ---
 
+## HANDOFF — 26 June 2026 (Placement status display fix)
+
+### Session objective
+
+Fix: placement status table labels rows "partial" even when placed ≥ required
+(e.g. shelters 224/220, water 14/5, latrines 56/55 all showed "partial").
+
+### Root cause
+
+In `app.py`, both the shelter row (line 645) and the facility loop (line 663)
+used `== r` to decide between `"yes"` and `f"partial ({p}/{r})"`. Over-placement
+is expected and correct — shelters are built in whole 16-family communities,
+water/latrines provisioned per community/block — so the comparison should be `>= r`.
+
+### What changed
+
+**`app.py` only. Two `==` changed to `>=`.**
+
+```python
+# shelter row
+"OK": "yes" if sh_p >= sh_r else f"partial ({sh_p}/{sh_r})"
+
+# facility loop
+elif p >= r:
+    ok = "yes"
+```
+
+No placement, scoring, compliance gate, or margin logic touched.
+
+### Verification
+
+All 7 placement regression scenarios + 21 estimator assertions: **ALL PASS**.
+Visual: shelters 224/220 → "yes"; water 14/5 → "yes"; latrines 56/55 → "yes".
+Only genuinely short rows (placed < required) read "partial".
+
+### Commit
+
+- `04dd37a` — fix: placement status shows 'yes' when placed >= required
+
+### App state at session end
+
+One clean Streamlit instance on port 8505. Branch `main`.
+
+---
+
 ## HANDOFF — 26 June 2026 (Multi-phase community packing — engine improvement)
 
 ### Session objective
