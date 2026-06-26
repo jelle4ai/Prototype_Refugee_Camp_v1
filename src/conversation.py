@@ -232,7 +232,13 @@ def _render_quick_inputs(inputs: dict) -> None:
     if not any(needs.values()):
         return
 
-    st.caption("Quick inputs — fill here or describe in the chat:")
+    st.markdown(
+        "<p style='font-size:0.78rem;color:#8A8579;margin:0.6rem 0 0.3rem;"
+        "font-family:Inter,sans-serif;'>"
+        "Prefer to enter details directly? Optional shortcuts "
+        "— or just describe in the chat above.</p>",
+        unsafe_allow_html=True,
+    )
 
     # ── Row 1: categorical buttons ───────────────────────────────
     btn_specs = []
