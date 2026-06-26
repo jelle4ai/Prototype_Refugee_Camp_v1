@@ -272,12 +272,17 @@ def find_candidates(
     Each progressive tier issues its OWN Overpass query with a matching
     bounding box.  This avoids the 1 000-element cap cutting off nearby
     parcels that exist inside a larger search box.  Stops at the first
-    tier that yields >= _MIN_CANDIDATES qualifying parcels.
+    tier that yields >= _MIN_CANDIDATES FITTING parcels (capacity estimate
+    passes _MIN_SPARE_SLOTS check), or at max_radius_km if no fitting sites
+    are found at any inner tier.
 
     Returns (candidates, error_message, used_radius_km).
     """
     min_area = required_area_m2 * _AREA_TOLERANCE
     tiers = sorted(set(_RADIUS_TIERS + [int(max_radius_km)]))
+    # Precompute fitting threshold for use in the early-stop check inside the loop.
+    _pop_est_loop   = required_area_m2 / 45.0
+    _req_slots_loop = ceil(_pop_est_loop / _PP_PER_COMMUNITY) + _MIN_SPARE_SLOTS
 
     def _geom(el: dict) -> list[tuple[float, float]]:
         return [(g["lat"], g["lon"]) for g in el.get("geometry", [])]
@@ -308,20 +313,28 @@ def find_candidates(
             elif cat == "land":
                 raw_land.append({"latlons": latlons, "sub": sub, "id": el["id"]})
 
-        # Count qualifying parcels strictly within the circular radius
+        # Count qualifying and FITTING parcels within the circular radius.
         # (bbox is rectangular — corners can be ~41 % further than tier km)
+        # We use fitting_count (not raw qualifying_count) for the early-stop so
+        # the search expands to wider tiers when all nearby qualifying parcels
+        # are too small for the population (shape + margin effects).
         qualifying_count = 0
+        fitting_count    = 0
         for way in raw_land:
             c_lat, c_lon = _centroid(way["latlons"])
             area = _poly_area_m2(way["latlons"], c_lat, c_lon)
-            if area >= min_area and _dist_m(c_lat, c_lon, city_lat, city_lon) <= tier * 1_000:
-                qualifying_count += 1
+            if area < min_area or _dist_m(c_lat, c_lon, city_lat, city_lon) > tier * 1_000:
+                continue
+            qualifying_count += 1
+            _, est_comm = _estimate_capacity(way["latlons"], c_lat, c_lon)
+            if est_comm >= _req_slots_loop:
+                fitting_count += 1
 
         saved_raw_land    = raw_land
         saved_water_bboxes = water_bboxes
         used_km = tier
 
-        if qualifying_count >= _MIN_CANDIDATES or tier >= max_radius_km:
+        if fitting_count >= _MIN_CANDIDATES or tier >= max_radius_km:
             break
 
     # ── Roads query for the chosen tier ──────────────────────────────────────
@@ -384,10 +397,11 @@ def find_candidates(
     parcels.sort(key=lambda p: (0 if p["fits_population"] else 1, p["city_dist_m"]))
     top = parcels[:_MAX_CANDIDATES]
 
+    n_fitting = sum(1 for p in parcels if p["fits_population"])
     # Diagnostic — visible in the Streamlit server log
     print(
-        f"[site_search] {len(parcels)} qualifying parcel(s) within {used_km} km; "
-        f"showing top {len(top)}"
+        f"[site_search] {len(parcels)} qualifying parcel(s) within {used_km} km "
+        f"({n_fitting} fitting); showing top {len(top)}"
     )
     for i, c in enumerate(top):
         fits = "fits" if c["fits_population"] else "TOO SMALL"
