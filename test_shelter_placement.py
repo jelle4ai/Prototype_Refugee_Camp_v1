@@ -44,7 +44,7 @@ def _check(label, cond, detail=""):
 
 
 def run_scenario(label, parcel_pts, population, expect_full_fill, shelter_area_m2=17.5,
-                 expect_geometric_shortfall=False):
+                 expect_geometric_shortfall=False, expect_min_communities=None):
     n_shelters = population // 5
     site = {"parcel_polygon_m": parcel_pts, "roads_m": []}
     parcel = _Poly(parcel_pts)
@@ -82,13 +82,22 @@ def run_scenario(label, parcel_pts, population, expect_full_fill, shelter_area_m
     if expect_geometric_shortfall:
         sc = sr.get("shortfall_communities", 0)
         placed = sr.get("placed", 0)
+        n_communities = ceil(n_shelters / 16)
+        placed_comms  = n_communities - sc
         print(f"  Geometric shortfall: {sc} communities, {sr.get('shortfall_shelters', 0)} shelters")
-        print(f"  Placed {placed}/{n_shelters} shelters — capacity ~{placed * 5} people")
+        print(f"  Placed {placed_comms}/{n_communities} communities, "
+              f"{placed}/{n_shelters} shelters — capacity ~{placed * 5} people")
         _check("R4 passes (area sufficient)", not sr.get("r4_fail"))
         _check("shortfall_communities set", sc > 0, f"sc={sc}")
         _check("some shelters placed (partial fill, not total failure)",
                placed > 0, f"placed={placed}")
         _check("capacity estimate positive", placed * 5 > 0)
+        if expect_min_communities is not None:
+            _check(
+                f"multi-phase: placed >= {expect_min_communities} communities",
+                placed_comms >= expect_min_communities,
+                f"placed={placed_comms}",
+            )
         overlap_check = next(c for c in
                              compliance_gate({"shelter_result": sr, "facilities": facilities,
                                              "roads": place_roads(site, sr, facilities)},
@@ -164,13 +173,34 @@ run_scenario("E. HP off-by-one regression (385 x 200 m, 1100 pp)",
 
 # F. Geometric capacity shortfall — R4 passes but concave shape limits lattice slots.
 #    450×130 m parcel: area=58,500 m² > 49,500 m² (R4 passes for 1100 pp).
-#    Inset after 35 m margin: 380×60 m → only 1 lattice row (48 m pitch, 8 cols)
-#    for 14 communities needed → shortfall_communities set, some shelters placed.
-#    This is the Site D class of failure: honest partial placement, not silent.
+#    Inset after 35 m margin: 380×60 m.  The multi-phase lattice (2 y-phase rows
+#    at 35 m and 83 m with half-pitch row at 59 m) may place more than the 11/14
+#    that the original single-row lattice achieves.  The floor of 11 communities
+#    ensures no regression; the test accepts improvement too.
 run_scenario(
     "F. Geometric shortfall (450 x 130 m narrow strip, 1100 pp) — R4 passes, shape limits",
     [(0, 0), (450, 0), (450, 130), (0, 130)],
     population=1100, expect_full_fill=False, expect_geometric_shortfall=True,
+    expect_min_communities=11,
+)
+
+# G. Concave parcel with western arm between lattice rows — multi-phase regression.
+#    Main body 500×115 m + 130×100 m western arm at y=7.5..107.5, x=-130..0.
+#    Area: 500*115 + 130*100 = 70,500 m² (R4 passes for 1100 pp: 70500/45=1567 pp).
+#    After 35 m inset: main body [35..465]×[35..80] gives 1 Phase-0 row (y=35,
+#    next row at y=83 > gmaxy=80) with 8 columns → 8 communities.
+#    The arm inset [-95..-35]×[42.5..72.5] is entirely between Phase-0 rows
+#    (it does not contain y=35 since 42.5>35) so the single-grid lattice never
+#    samples it.  Multi-phase row at y=59 (Phase-0 + PITCH_Y/2) reaches the arm:
+#    x=-95 and x=-41 both lie in [-95..-35], placing 2 more communities for a
+#    total of 10.  The test asserts placed >= 10 communities to prove improvement
+#    over the Phase-0-only baseline of 8.
+run_scenario(
+    "G. Concave parcel with western arm between lattice rows (1100 pp) — multi-phase",
+    [(-130, 7.5), (-130, 107.5), (0, 107.5), (0, 115),
+     (500, 115), (500, 0), (0, 0), (0, 7.5)],
+    population=1100, expect_full_fill=False, expect_geometric_shortfall=True,
+    expect_min_communities=10,
 )
 
 print("=" * 70)

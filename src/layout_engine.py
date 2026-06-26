@@ -241,6 +241,15 @@ def _place_community(
     open_poly    = ShapelyPolygon(open_corners)
     if not parcel.contains(open_poly):
         return None
+    # Reject this centre if existing occupied geometry would physically overlap
+    # the open space.  Erode by 2 m before testing so the SH6 clearance buffer
+    # (2.01 m) around already-placed shelters does not trigger a false rejection
+    # on community centres at exactly the collision-proof minimum pitch (54×48 m).
+    # This guard is essential when the candidate set includes half-pitch offsets
+    # (multi-phase lattice): two centres 24 m apart on the same x-column would
+    # physically overlap here without it.
+    if occ is not None and open_poly.buffer(-2.0).intersects(occ):
+        return None
     # Add open space (+ clearance) to occ so shelters cannot enter it.
     # The tap is placed inside the open space and intentionally bypasses this check.
     occ = _union_add(occ, open_poly, clearance=_OPEN_CLR)
@@ -891,15 +900,41 @@ def place_shelters(site: dict,
     # (i.e. exactly _MARGIN from the parcel edge — valid minimum positions) are
     # included rather than silently dropped.
     gminx, gminy, gmaxx, gmaxy = inset.bounds
-    candidates: list[tuple[float, float]] = []
-    y = gminy
-    while y <= gmaxy:
-        x = gminx
-        while x <= gmaxx:
-            if inset.intersects(_ShapelyPoint(x, y)):
-                candidates.append((x, y))
-            x += _COMM_PITCH_X
-        y += _COMM_PITCH_Y
+    # Multi-phase lattice: try 2×2 phase offsets (4 grids) so every part of
+    # the inset is sampled, including concave sub-regions (arms, notches) that
+    # fall between the rows/columns of a single fixed-origin grid.
+    #
+    # Sort order: phase (0,0) candidates come first, keeping the original
+    # well-spaced positions preferred.  The three half-offset phases are tried
+    # only if more communities are still needed after Phase 0.  Within each
+    # phase the walk is south → north, west → east (preserving SH7 order).
+    #
+    # Two candidates from different phases that are < PITCH apart cannot both
+    # be placed: the open-space overlap guard in _place_community (−2 m erode)
+    # rejects a centre whose open space physically overlaps an already-placed
+    # community's footprint, so the collision-proof pitch guarantee is preserved
+    # even when the candidate set is denser than the original single grid.
+    _N_PHASES = 2
+    _ph_raw: list[tuple[float, float, int]] = []
+    _ph_seen: set[tuple[int, int]] = set()
+    for _ph_py in range(_N_PHASES):
+        for _ph_px in range(_N_PHASES):
+            _ph_rank = _ph_py * _N_PHASES + _ph_px
+            _ph_y    = gminy + _ph_py * _COMM_PITCH_Y / _N_PHASES
+            _ph_x0   = gminx + _ph_px * _COMM_PITCH_X / _N_PHASES
+            while _ph_y <= gmaxy:
+                _ph_x = _ph_x0
+                while _ph_x <= gmaxx:
+                    _ph_key = (round(_ph_x), round(_ph_y))
+                    if _ph_key not in _ph_seen and inset.intersects(_ShapelyPoint(_ph_x, _ph_y)):
+                        _ph_seen.add(_ph_key)
+                        _ph_raw.append((_ph_x, _ph_y, _ph_rank))
+                    _ph_x += _COMM_PITCH_X
+                _ph_y += _COMM_PITCH_Y
+    candidates: list[tuple[float, float]] = [
+        (_x, _y) for _x, _y, _ in sorted(_ph_raw, key=lambda t: (t[2], t[1], t[0]))
+    ]
+    del _ph_raw, _ph_seen
 
     # SH7 tracking: per y-band cumulative E-W built width.
     # Communities within the same grid row share a y-band index.
