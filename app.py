@@ -642,7 +642,7 @@ def stage_layout():
     sh_p, sh_r = shelter_result["placed"], shelter_result["required"]
     status_rows = [{"Facility": "Shelter units",
                     "Placed": sh_p, "Required": sh_r,
-                    "OK": "yes" if sh_p == sh_r else f"partial ({sh_p}/{sh_r})"}]
+                    "OK": "yes" if sh_p >= sh_r else f"partial ({sh_p}/{sh_r})"}]
 
     fac_display = [
         ("health_post",         "Health post"),
@@ -660,7 +660,7 @@ def stage_layout():
         p, r = s.get("placed", 0), s.get("required", 0)
         if r == 0:
             ok = "n/a"
-        elif p == r:
+        elif p >= r:
             ok = "yes"
         else:
             ok = f"partial ({p}/{r})"
