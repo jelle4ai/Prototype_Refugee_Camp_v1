@@ -2,6 +2,43 @@
 
 ---
 
+## HANDOFF — 27 June 2026 (UI fixes — 7 cosmetic/bug commits)
+
+### Session objective
+
+Implement 7 isolated UI fixes (bugs + cosmetics) as separate commits.
+Hard boundary: no placement, scoring, compliance gate, capacity, or site-search logic touched.
+
+### What changed (one commit each)
+
+| # | Commit | File(s) | Change |
+|---|--------|---------|--------|
+| 1 | `e3a4d2e` | `src/brand.py` | Header `display:none` → transparent page-coloured bar so the sidebar expand ("»") button inside remains accessible; `padding-top: 1rem → 3.5rem` to clear the bar |
+| 2 | `9a97b89` | `src/brand.py` | Page header SVG: removed indigo tile background rect, recoloured 8 ring dots cream→indigo. Favicon unchanged. |
+| 3 | `4cbf2ab` | `src/summary.py` | Sticky bar `onclick`: `.click()` → `.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true}))` + `===` → `.includes()` for React 18 compat |
+| 4 | `54cc3d1` | `src/conversation.py` | Added `_brand_avatar()` PIL helper; AI avatar = Hamlet Indigo disc, user avatar = Muted warm-grey disc |
+| 5 | `0863d94` | `app.py` | "Optimise layout" → "Improve layout"; "Optimiser found no improvement" → "No changes needed — this layout is already near-optimal" |
+| 6 | `5d5bdaf` | `app.py` | "Improve layout" is now full-width (no column split); "Reset layout" moved to bottom of stage with divider, before "Start over" |
+| 7 | `c694a3a` | `app.py` | Added `st.subheader("Camp layout")` above `st.plotly_chart()` on the result page |
+
+### Verification
+
+All 7 placement regression scenarios + 21 capacity estimator assertions: **ALL PASS** after every commit.
+
+### Visual review checklist
+
+- **Stage 1 (input)** — avatars: AI = indigo disc, user = grey disc
+- **Stage 1** — collapsing sidebar: click «, then reopen with visible » button in top bar
+- **Stage 2** — page header logo: 8 indigo dots + terracotta circle on light background (no tile)
+- **Stage 3 (summary)** — "Generate the layout →" sticky bar button advances to stage 4
+- **Stage 4 (layout)** — "Improve layout" button label; "No changes needed" on re-run; "Camp layout" heading above map; "Reset layout" at bottom before "Start over"
+
+### App state at session end
+
+Start clean: `streamlit run app.py --server.port 8505`
+
+---
+
 ## HANDOFF — 26 June 2026 (Placement status display fix)
 
 ### Session objective
