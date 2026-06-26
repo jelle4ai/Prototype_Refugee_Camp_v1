@@ -203,11 +203,9 @@ _HAMLET_HEADER_HTML = """
 ">
   <svg viewBox="-66 -66 132 132" width="52" height="52"
        role="img" aria-label="Hamlet mark"
-       style="flex-shrink:0; display:block; border-radius:12px;">
-    <!-- App-icon background -->
-    <rect x="-62" y="-62" width="124" height="124" rx="24" fill="#1F4788"/>
-    <!-- 8 rounded rects in cream -->
-    <g fill="#F4F1EA">
+       style="flex-shrink:0; display:block;">
+    <!-- 8 indigo rounded rects in a ring (no tile background — full logo mark) -->
+    <g fill="#1F4788">
       <rect x="-7"    y="-53"   width="14" height="14" rx="3"/>
       <rect x="25.5"  y="-39.5" width="14" height="14" rx="3"/>
       <rect x="39"    y="-7"    width="14" height="14" rx="3"/>
