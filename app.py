@@ -393,7 +393,7 @@ def stage_layout():
 
     # ── Optimiser button (Step 2) ─────────────────────────────────────────────
     col_opt, col_reset = st.columns([2, 1])
-    if col_opt.button("Optimise layout", key="btn_optimise", type="primary",
+    if col_opt.button("Improve layout", key="btn_optimise", type="primary",
                       use_container_width=True,
                       help="Run greedy improvement loop (10 iterations max)"):
         before_layout = {"shelter_result": shelter_result, "facilities": facilities, "roads": roads}
@@ -431,8 +431,8 @@ def stage_layout():
     if opt_summary:
         if opt_summary["moved"] == 0:
             st.info(
-                "**Optimiser found no improvement** — layout already near-optimal "
-                f"(quality score stayed at {opt_summary['after']})."
+                "No changes needed — this layout is already near-optimal "
+                f"(quality score: {opt_summary['after']})."
             )
         else:
             delta = opt_summary["after"] - opt_summary["before"]
