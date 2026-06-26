@@ -32,6 +32,19 @@ _MIN_CANDIDATES        = 3
 _AREA_TOLERANCE = 0.95   # accept parcels >= 95 % of required area (rounding buffer)
 _RADIUS_TIERS   = [2, 5, 10]  # km — progressive expansion
 
+# ── Capacity estimation constants — must match layout_engine.py ───────────────
+# These mirror the engine's _COMM_PITCH_X/_Y, _N_FAM_PER_COMM, _AVG_PP, and
+# parcel.buffer(-35) inset.  Kept here explicitly so site_search.py has no
+# import dependency on layout_engine.
+_INSET_M          = 35.0   # WS5-derived boundary margin (same as engine)
+_COMM_PITCH_X     = 54.0   # community E-W centre-to-centre pitch (m)
+_COMM_PITCH_Y     = 48.0   # community N-S centre-to-centre pitch (m)
+_PP_PER_COMMUNITY = 80     # 16 families × 5 pp/family (Appendix F)
+# A site is selectable only when its estimated capacity exceeds population × this.
+# 1.15 absorbs CS5 facility collisions (can block ~5–15 % of lattice positions)
+# and multi-phase improvements not credited in the conservative Phase-0 estimate.
+_CAPACITY_BUFFER  = 1.15
+
 _LAND_TYPES: dict[str, str] = {
     "farmland":           "Farmland",
     "meadow":             "Meadow",
@@ -55,6 +68,53 @@ _PALETTE = [
     ("#f4a261", "rgba(244,162,97,0.22)"),
     ("#264653", "rgba(38,70,83,0.22)"),
 ]
+
+
+# ── Fast capacity estimator ──────────────────────────────────────────────────
+
+def _estimate_capacity(
+    nodes_latlon: list[tuple[float, float]],
+    centroid_lat: float,
+    centroid_lon: float,
+) -> tuple[int, int]:
+    """
+    Conservative Phase-0 lattice capacity estimate. Returns (est_capacity_pp, n_slots).
+
+    Method: project the parcel polygon into local metre coordinates (centroid as
+    origin), erode by _INSET_M (35 m, the WS5-derived boundary margin), then count
+    how many _COMM_PITCH_X × _COMM_PITCH_Y (54×48 m) Phase-0 grid points fall
+    inside or on the boundary of the inset polygon.  Each slot represents one
+    community of _PP_PER_COMMUNITY = 80 people (16 families × 5 pp/family).
+
+    The estimate is deliberately conservative:
+    - Phase-0 count only — no multi-phase bonus (~+30 % on irregular sites).
+    - No deduction for CS5 facility footprints (absorbed by _CAPACITY_BUFFER).
+    - Uses intersects() to match the engine's candidate filter exactly.
+
+    A site is offered as selectable when est_capacity_pp >= population * _CAPACITY_BUFFER.
+    """
+    try:
+        from shapely.geometry import Polygon as _Poly, Point as _Pt
+        pts = [latlon_to_metres(la, lo, centroid_lat, centroid_lon)
+               for la, lo in nodes_latlon]
+        if len(pts) < 3:
+            return 0, 0
+        inset = _Poly(pts).buffer(-_INSET_M)
+        if inset.is_empty:
+            return 0, 0
+        gminx, gminy, gmaxx, gmaxy = inset.bounds
+        n = 0
+        y = gminy
+        while y <= gmaxy + 1e-9:
+            x = gminx
+            while x <= gmaxx + 1e-9:
+                if inset.intersects(_Pt(x, y)):
+                    n += 1
+                x += _COMM_PITCH_X
+            y += _COMM_PITCH_Y
+        return n * _PP_PER_COMMUNITY, n
+    except Exception:
+        return 0, 0
 
 
 # ── Geometry helpers ──────────────────────────────────────────────────────────
@@ -309,15 +369,28 @@ def find_candidates(
     parcels.sort(key=lambda p: p["city_dist_m"])
     top = parcels[:_MAX_CANDIDATES]
 
+    # Fast capacity estimate for each returned candidate (Shapely, no full placement).
+    # population is exact: required_area_m2 / 45 (from requirements_engine total_area_m2).
+    _pop_est = required_area_m2 / 45.0
+    for c in top:
+        est_cap, est_comm = _estimate_capacity(
+            c["nodes_latlon"], c["centroid_lat"], c["centroid_lon"]
+        )
+        c["est_capacity_pp"]  = est_cap
+        c["est_communities"]  = est_comm
+        c["fits_population"]  = est_cap >= _pop_est * _CAPACITY_BUFFER
+
     # Diagnostic — visible in the Streamlit server log
     print(
         f"[site_search] {len(parcels)} qualifying parcel(s) within {used_km} km; "
         f"showing top {len(top)}"
     )
     for i, c in enumerate(top):
+        fits = "fits" if c["fits_population"] else "TOO SMALL"
         print(
             f"  Site {_LABELS[i]}: {c['city_dist_m'] / 1_000:.2f} km from city, "
-            f"{c['area_ha']:.1f} ha, {c['land_label']}"
+            f"{c['area_ha']:.1f} ha, {c['land_label']}, "
+            f"est {c['est_capacity_pp']:,} pp ({fits})"
         )
 
     for i, c in enumerate(top):
