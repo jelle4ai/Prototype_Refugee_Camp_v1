@@ -392,10 +392,9 @@ def stage_layout():
     fac_status     = facilities.get("status", {})
 
     # ── Optimiser button (Step 2) ─────────────────────────────────────────────
-    col_opt, col_reset = st.columns([2, 1])
-    if col_opt.button("Improve layout", key="btn_optimise", type="primary",
-                      use_container_width=True,
-                      help="Run greedy improvement loop (10 iterations max)"):
+    if st.button("Improve layout", key="btn_optimise", type="primary",
+                 use_container_width=True,
+                 help="Run greedy improvement loop (10 iterations max)"):
         before_layout = {"shelter_result": shelter_result, "facilities": facilities, "roads": roads}
         score_before = score_layout(before_layout, site, reqs)["quality"]["total"]
 
@@ -419,11 +418,6 @@ def stage_layout():
             "moved": moved_count, "before": score_before, "after": score_after,
         }
         lr.pop("last_move_summary", None)
-        _clear_feedback_state()
-        st.rerun()
-
-    if col_reset.button("Reset layout", key="btn_reset_layout", use_container_width=True):
-        del st.session_state["layout_result"]
         _clear_feedback_state()
         st.rerun()
 
@@ -717,6 +711,12 @@ def stage_layout():
         summary = {k: v for k, v in site.items() if k != "roads_m"}
         summary["roads_count"] = len(site.get("roads_m", []))
         st.json(summary)
+
+    st.divider()
+    if st.button("Reset layout", key="btn_reset_layout"):
+        del st.session_state["layout_result"]
+        _clear_feedback_state()
+        st.rerun()
 
     if st.button("Start over", key="btn_layout"):
         advance_stage()
