@@ -79,6 +79,50 @@ def advance_stage():
     st.rerun()
 
 
+def _navigate_to(target_stage: str) -> None:
+    """Navigate backward to target_stage, clearing derived state from later stages."""
+    target_idx = STAGES.index(target_stage)
+    if target_idx < STAGES.index("layout"):
+        st.session_state.pop("layout_result", None)
+        _clear_feedback_state()
+    st.session_state["stage"] = target_stage
+    st.rerun()
+
+
+def render_stepper(current_stage: str) -> None:
+    """Horizontal step progress bar with clickable back-navigation on completed steps."""
+    labels = ["Information gathering", "Site selection", "Review and confirm", "Layout result"]
+    current_idx = STAGES.index(current_stage)
+    cols = st.columns(4)
+    for i, (col, label) in enumerate(zip(cols, labels)):
+        stage_key = STAGES[i]
+        num = i + 1
+        with col:
+            if i < current_idx:
+                if st.button(
+                    f"✓ {num}. {label}",
+                    key=f"stepper_{stage_key}",
+                    use_container_width=True,
+                    type="secondary",
+                    help=f"Return to {label}",
+                ):
+                    _navigate_to(stage_key)
+            elif i == current_idx:
+                st.markdown(
+                    f"<div style='text-align:center;padding:6px 4px;color:#1F4788;"
+                    f"font-weight:600;font-size:0.875rem;font-family:Inter,sans-serif;"
+                    f"border-bottom:2px solid #1F4788;'>{num}. {label}</div>",
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.markdown(
+                    f"<div style='text-align:center;padding:6px 4px;color:#8A8579;"
+                    f"font-size:0.875rem;font-family:Inter,sans-serif;'>"
+                    f"{num}. {label}</div>",
+                    unsafe_allow_html=True,
+                )
+
+
 def stage_input():
     render_input_stage()
 
@@ -748,14 +792,8 @@ def main():
         _scroll_to_top()
 
     render_brand_header()
-
-    _stage_labels = {
-        "input":    "Stage 1 of 4 — Information gathering",
-        "location": "Stage 2 of 4 — Site selection",
-        "summary":  "Stage 3 of 4 — Review and confirm",
-        "layout":   "Stage 4 of 4 — Layout result",
-    }
-    st.caption(_stage_labels.get(current_stage, ""))
+    render_stepper(current_stage)
+    st.divider()
 
     STAGE_HANDLERS[current_stage]()
 

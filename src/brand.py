@@ -184,6 +184,19 @@ div[data-testid="stExpander"] {
     color: #F4F1EA !important;
 }
 
+/* Secondary buttons — ghost/outlined style for stepper back-nav and unselected toggles.
+   Must come after the general .stButton rule so the !important overrides it. */
+button[data-testid="baseButton-secondary"] {
+    background-color: transparent !important;
+    color: #1F4788 !important;
+    border: 1px solid #E0DACD !important;
+}
+button[data-testid="baseButton-secondary"]:hover {
+    background-color: #EFEBE0 !important;
+    color: #1F4788 !important;
+    border-color: #1F4788 !important;
+}
+
 /* Main content block padding — clears the now-visible transparent header (~2.875rem) */
 .block-container {
     padding-top: 3.5rem !important;
