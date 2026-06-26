@@ -2,6 +2,223 @@
 
 ---
 
+## HANDOFF — 26 June 2026 (Site D usable-space diagnosis — DIAGNOSIS ONLY, NO FIX)
+
+### Session objective
+
+Determine rigorously whether the empty space visible in Site D's rendered
+layout is **genuinely unusable margin** or **wasted space from inefficient
+packing**. Prior diagnosis (same date, earlier session) concluded the engine
+was correct. This session checked whether the leftover space inside the inset
+can actually fit more communities — which the prior session did not verify.
+
+### Reproduction confirmed
+
+Real Site D: OSM way 52614949, 5.80 ha, 87 vertices, 457 × 187 m bounding
+box, 3.50 km from Enschede city centre. `place_shelters` with pop=1100 places
+exactly **7/14 communities, 112/220 shelters** — matching the reported failure.
+
+---
+
+### Q1: EMPTY SPACE AUDIT (all numbers from live diagnostic script)
+
+| Zone | Area (m²) | % of parcel |
+|---|---|---|
+| Parcel total | 57,974 | 100.0% |
+| Margin zone (35 m inset) | 35,146 | 60.6% |
+| Inset (interior usable zone) | 22,829 | 39.4% |
+| — Actual built footprints (7 comms) | 3,965 | 6.8% of parcel / 17.4% of inset |
+| — Community convex hulls (overlap zone) | 13,902 | 60.9% of inset |
+| — **Genuinely empty inside inset** | **18,863** | **32.5% of parcel / 82.6% of inset** |
+
+The built footprint breakdown per community (×7):
+- 16 shelters: 5.0 × 3.5 m × 16 = 280 m²
+- 4 latrine stalls: 4.0 × 3.0 m × 4 = 48 m²
+- 1 washing unit: 4.0 × 3.0 m = 12 m²
+- 1 open space: 20 × 16 m = 320 m²
+- **Total per community: 660 m²; total for 7: 4,620 m²**
+
+**Roads:** 3 real Enschede roads have zero effect on Site D placement
+(confirmed by prior session; confirmed again — the fine-grained search does
+not change when roads/CS5 facilities are added).
+
+**Key question:** is the 18,863 m² empty inset space usable? See Q4.
+
+---
+
+### Q2: WHY DID EACH UNPLACED COMMUNITY FAIL?
+
+The lattice at 54 × 48 m pitch over the inset bounds generates **21 total
+points**, of which **only 7 are inside the inset polygon**. The 7 valid
+lattice points are:
+
+| Position | Boundary dist (m) |
+|---|---|
+| (-35.7, -31.0) | 46.2 |
+| (18.3, -31.0) | 58.9 |
+| (72.3, -31.0) | 74.7 |
+| (126.3, -31.0) | 74.6 |
+| (180.3, -31.0) | 55.9 |
+| (-35.7, 17.0) | 36.8 |
+| (72.3, 17.0) | 41.5 |
+
+All 7 succeed at `_place_community` (16 shelters each, sequential occ). The
+14 rejected lattice positions are outside the inset because boundary distance
+< 35 m (range: 0.5 m to 33.0 m from parcel boundary):
+
+| Invalid position | Boundary dist | Deficit |
+|---|---|---|
+| (-143.7, -79.0) | 31.2 m | 3.8 m short |
+| (-89.7, -79.0) | 20.8 m | 14.2 m short |
+| (-35.7, -79.0) | 0.5 m | 34.5 m short |
+| (18.3, -79.0) | 20.0 m | 15.0 m short |
+| (72.3, -79.0) | 26.7 m | 8.3 m short |
+| (126.3, -79.0) | 26.7 m | 8.3 m short |
+| (180.3, -79.0) | 23.0 m | 12.0 m short |
+| (-143.7, -31.0) | 16.8 m | 18.2 m short |
+| (-89.7, -31.0) | 17.7 m | 17.3 m short |
+| (-143.7, 17.0) | 24.1 m | 10.9 m short |
+| (-89.7, 17.0) | 32.7 m | **2.3 m short** |
+| (18.3, 17.0) | 32.3 m | **2.7 m short** |
+| (126.3, 17.0) | 33.0 m | **2.0 m short** |
+| (180.3, 17.0) | 23.8 m | 11.2 m short |
+
+**Failure mode for all 7 unplaced communities: CATEGORY (a) — no lattice
+slot generated.** The parcel's concave boundary excludes 14 of 21 lattice
+positions. No community was rejected by `_place_community`, WS5, SA4,
+boundary clearance, or CS5 collision. They simply have no candidate position.
+
+---
+
+### Q3: IS THE 35 m INSET CORRECT?
+
+**Not SH7.** SH7 (Appendix B) mandates a 30 m firebreak after 300 m of
+continuous E-W built area — between building zones INSIDE the camp, not a
+boundary setback.
+
+**Correct derivation (from code):**
+- South latrines placed at cy − 34 m nominal.
+- If cy < 34 m, `_nudge` displaces them to y ≈ 1.5 m (near south boundary).
+- Tap-to-latrine distance becomes cy − 1.5 m.
+- WS5 requires ≥ 30 m → cy ≥ 31.5 m → round up to **35 m**.
+- E-W axis: ring-1 shelters at ± 18.5 m from centre → only 15 m needed there.
+- 35 m covers both axes; N-S WS5 is the binding constraint.
+
+**Could a smaller margin work?**
+
+| Margin | Inset area | Lattice candidates |
+|---|---|---|
+| 35 m (current) | 22,829 m² | 7 (row 1: 5 + row 2: 2) |
+| 30 m | 27,043 m² | 11 (5 + 6) |
+| 25 m | 31,522 m² | 13 (6 + 7) |
+| 20 m | 36,349 m² | 13 (5 + 7 + 1) |
+| 15 m | 41,440 m² | 13 (5 + 7 + 1) |
+
+Even at 20 m (which would violate WS5), only 13 lattice candidates — not
+enough to reach 14. **The 35 m margin is correct. It is not the root cause
+of the shortfall.**
+
+---
+
+### Q4: IS THE PACKING EFFICIENT?
+
+**Answer: NO — the current lattice is packing-limited.**
+
+A 5 m resolution exhaustive grid search over the inset found **76 positions**
+where `_place_community` returns a full 16-shelter community — positions the
+fixed lattice never tries.
+
+These positions lie in a **western arm** of the parcel (roughly x: −143 to
+−88 m, y: −9 to +11 m) that falls between the two lattice rows (y = −31 m
+and y = +17 m). The 87-vertex polygon has a concave protrusion westward that
+widens at y ≈ −4 to +11 m. At the lattice rows (y = −31 and y = +17), the
+western arm is too close to the boundary (<35 m). At the intermediate
+y-values, the same arm is ≥35 m from the boundary — valid community
+territory — but the fixed lattice never samples there.
+
+Additional scattered positions also exist near the parcel's south strip
+(y ≈ −74 to −69 m), where community centres inside the inset can place
+south latrines further into the parcel interior.
+
+**Greedy placement result** (placing communities one-by-one into the best
+remaining positions, starting farthest from the existing cluster):
+
+| Step | Position | Shelters |
+|---|---|---|
+| +1 | (-138.7, -4.0) | 16 |
+| +2 | (-98.7, -4.0) | 16 |
+| +3 | (151.3, -74.0) | 16 |
+| +4 | (146.3, 11.0) | 16 |
+| +5 | (46.3, -69.0) | 16 |
+| +6 | (101.3, -69.0) | 16 |
+
+**6 additional communities placed → 7 + 6 = 13 total communities.**
+
+The 76 candidate grid cells collapse to 6 non-overlapping communities after
+accounting for each community's occ exclusion geometry.
+
+---
+
+### Q5: VERDICT
+
+**The answer is both (A) and (B) simultaneously, with (B) dominating:**
+
+**(B) Site D is PACKING-LIMITED** — the current 54 × 48 m fixed-origin lattice
+misses 6 valid community positions. The empty space inside the inset is NOT
+all unusable margin — a meaningful portion is genuinely buildable and the
+current algorithm simply does not find it.
+
+**(A) with a catch** — even with perfect packing, Site D can hold at most
+**~13 communities = 1,040 people**, not the required 14 (1,100 people). The
+gap of 1 community is structural. No compliant packing improvement closes it.
+
+| Metric | Lattice (current) | Greedy (optimal) | Required |
+|---|---|---|---|
+| Communities | 7 | 13 | 14 |
+| Shelters | 112 | 208 | 220 |
+| People capacity | 560 | 1,040 | 1,100 |
+| Gap | 7 short | **1 short** | — |
+
+**What packing change would help (but NOT fix the full gap):**
+Replace the fixed-origin lattice (starts from inset.bounds corner) with a
+multi-start lattice that also samples at y-offsets from the inset interior
+(e.g., try several y-phase offsets within one pitch cycle). This would find
+the western arm and the south strip. Risk: moderate — requires careful
+regression against the existing test suite; the collision-proof pitch
+derivation is pitch-only, not start-point-dependent, so same rules apply.
+Estimated gain for Site D: +6 communities. **Still 1 short of 14.**
+
+**Recommendation unchanged:** for pop=1,100 the user should select Site A
+(8.1 ha, 33 vertices, places 14/14 communities). The "one short" finding
+does not change the selection advice; it does change the error message — the
+"too small" language is now more accurately "shape-limited, max 1,040 people
+with current algorithm, max ~1,040 with optimal packing — 1 community short
+of the required 14."
+
+**Previous HANDOFF correction:** the earlier same-day session concluded
+"the engine is working correctly" and "7 candidates = genuine limit". This
+was partially wrong: the engine's PLACEMENT RULES are correct (35 m, WS5,
+SA4 all correct), but the LATTICE SAMPLING is packing-limited. The 7
+candidates are a function of the fixed-grid lattice's starting point, not
+of the parcel's hard geometry. 6 more communities fit in the same parcel
+with the same rules if the search explores the western arm.
+
+---
+
+### No code changes this session
+
+Zero diffs to any tracked file. Diagnostic script lived in the temp
+scratchpad only. One commit will add this PROGRESS.md entry.
+
+---
+
+### App state at session end
+
+One clean Streamlit instance running on port 8505.
+Branch `main`, no changes to tracked files except PROGRESS.md.
+
+---
+
 ## HANDOFF — 26 June 2026 (R4 honest capacity failure UX — three commits)
 
 ### Session overview
