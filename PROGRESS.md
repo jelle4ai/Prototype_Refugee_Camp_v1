@@ -127,6 +127,11 @@ Phase 0 alone satisfies the target.
 
 ---
 
+### Commits
+
+- `38c4dcb` — engine + test: `src/layout_engine.py` (open-space guard + multi-phase lattice), `test_shelter_placement.py` (Scenario G, `expect_min_communities`)
+- `6f2de09` — docs: this PROGRESS.md entry
+
 ### App state at session end
 
 One clean Streamlit instance running on port 8505.
