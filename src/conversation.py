@@ -369,6 +369,21 @@ def render_input_stage() -> None:
     # Sidebar always renders (collapses natively via Streamlit arrow)
     _render_sidebar(inputs)
 
+    # Primary action at top — disabled until all required fields collected
+    if _all_collected():
+        if st.button(
+            "Find a site on the map →", key="btn_find_site_top",
+            type="primary", use_container_width=True,
+        ):
+            st.session_state["stage"] = "location"
+            st.rerun()
+    else:
+        st.button(
+            "Find a site on the map", key="btn_find_site_top_disabled",
+            type="primary", use_container_width=True, disabled=True,
+            help="Answer all questions in the chat to enable this",
+        )
+
     # Full-width chat history
     _avatar_map = {"assistant": _AI_AVATAR, "user": _USER_AVATAR}
     for msg in st.session_state["chat_history"]:

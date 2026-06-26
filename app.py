@@ -128,6 +128,22 @@ def stage_input():
 
 
 def stage_location():
+    # Show "Confirm site" at top once a site has been selected, so the
+    # primary action is visible without scrolling to the bottom of the list.
+    if st.session_state.get("ss2_search_done"):
+        if st.session_state.get("ss2_selected"):
+            if st.button(
+                "Confirm site →", key="btn_confirm_top",
+                type="primary", use_container_width=True,
+            ):
+                st.session_state["stage"] = "summary"
+                st.rerun()
+        else:
+            st.button(
+                "Confirm site", key="btn_confirm_top_disabled",
+                type="primary", use_container_width=True, disabled=True,
+                help="Select a site from the list to continue",
+            )
     render_location_stage()
 
 
