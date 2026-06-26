@@ -2,6 +2,138 @@
 
 ---
 
+## HANDOFF — 26 June 2026 (Multi-phase community packing — engine improvement)
+
+### Session objective
+
+Implement a better community-packing search so the placement engine uses all
+genuinely buildable land on irregular sites (like Site D, Enschede) instead of
+leaving usable space empty due to a fixed-origin lattice.
+
+### Background (from previous diagnosis session)
+
+The fixed 54×48 m lattice generates only 7 valid candidates on Site D (OSM
+52614949, 5.80 ha, 87 vertices) because 14 of 21 lattice points fall outside
+the 35 m inset. A 5 m exhaustive grid search confirmed 76 candidate positions
+exist inside the inset — the lattice simply never samples them. A greedy
+placement from the full candidate set places **13 communities (1,040 people)**.
+The fixed lattice places **7 communities (560 people)**. This is a packing
+limitation, not a geometry limit and not a rule violation.
+
+---
+
+### What changed
+
+#### Change 1 — Open-space overlap guard in `_place_community`
+**File:** `src/layout_engine.py`, after `if not parcel.contains(open_poly): return None`
+
+Added a pre-placement check that rejects a community centre if the candidate's
+open space (eroded by 2 m) physically overlaps any already-placed community's
+occupied geometry. The −2 m erosion prevents false positives from SH6 clearance
+buffers (2.01 m) at the collision-proof minimum pitch (54×48 m). Without this
+guard, half-pitch candidates in the same x-column (24 m apart, well inside the
+pitch) would be accepted and their open spaces would physically overlap ring-1
+shelters of the existing community.
+
+#### Change 2 — Multi-phase 2×2 candidate lattice in `place_shelters`
+**File:** `src/layout_engine.py`, lattice generation block (~line 893)
+
+Replaced the single fixed-origin candidate loop with a 2×2 phase grid:
+- **Phase (0,0):** original lattice (y=gminy, x=gminx — same as before)
+- **Phase (0,1):** x-shifted by PITCH_X/2 = 27 m
+- **Phase (1,0):** y-shifted by PITCH_Y/2 = 24 m
+- **Phase (1,1):** both shifted
+
+Sort order: `(phase_rank, y, x)` — all Phase 0 candidates are tried first,
+preserving the original well-spaced positions. Phases 1-3 only fill gaps when
+Phase 0 alone does not satisfy `n_communities`.
+
+Duplicate-position guard: `(round(x), round(y))` de-duplication before sorting.
+The `_place_community` open-space guard (Change 1) enforces collision safety
+when half-pitch candidates appear near existing communities in the same column.
+
+---
+
+### Before / after — all tested scenarios
+
+| Scenario | Before | After | Regression? |
+|---|---|---|---|
+| A. Large rectangular (600×400 m, 2500 pp) | 512/500 shelters | 512/500 | none |
+| B. Large notched (580×380 m, 2400 pp) | 480/480 | 480/480 | none |
+| C. Narrow trapezoid (500×200 m, 1200 pp) | 240/240 | 240/240 | none |
+| D. Too-small (60×60 m, 2000 pp) | R4 fail honest | R4 fail honest | none |
+| E. HP off-by-one regression (385×200 m, 1100 pp) | 224/220 | 224/220 | none |
+| F. Geometric shortfall (450×130 m, 1100 pp) | 11/14 comms | 11/14 comms | none |
+| G. Concave + western arm (new scenario) | 8/14 baseline | 10/14 | +2 |
+| **Site D live (OSM 52614949, 1100 pp)** | **7/14 comms, 112 shelters** | **9/14 comms, 144 shelters** | **+2** |
+
+**All 7 regression scenarios pass with 0 footprint overlap.**
+
+---
+
+### Site D honest capacity
+
+- **Before:** 7/14 communities, 112/220 shelters, ~560 pp
+- **After:** 9/14 communities, 144/220 shelters, ~720 pp
+- **Greedy (5 m search) maximum:** 13/14 communities, ~1,040 pp
+
+The 2x2 multi-phase lattice captures 2 of the 6 greedy-reachable positions:
+the western arm at y=-7 m (Phase 1, y-shifted), which falls between the Phase 0
+rows at y=-31 and y=+17. The south strip positions (y=-69 to -74) are rejected
+by the open-space guard because Phase 0's ring-4 south occupancy extends to
+y=-67 m — and Phase 0 communities are placed first (by design, to preserve the
+well-spaced baseline). Recovering the south strip would require interleaved-y
+ordering or a full greedy search, both of which risk regression on other sites.
+
+**Site D maximum honest capacity: ~720 pp with multi-phase lattice, ~1,040 pp
+with a full greedy search. Still 1 community short of 14 (1,100 pp) under any
+compliant algorithm. Recommendation: use Site A (8.1 ha) for pop=1,100.**
+
+---
+
+### Compliance unchanged
+
+- 35 m inset margin: **unchanged** (still `parcel.buffer(-35)` — WS5-derived)
+- WS5 (tap >=30 m from latrines): **unchanged**
+- SA4, CS5, SH7: **unchanged**
+- `compliance_gate()`: **zero diff** — overlap check, WS5, SA4 all identical
+
+The open-space guard is a PRE-placement screen; it is strictly more conservative
+than the minimum required. It does not weaken any compliance check.
+
+---
+
+### Runtime
+
+| Case | Runtime |
+|---|---|
+| Site D (5.80 ha, 1100 pp, live OSM polygon) | 0.64 s |
+| Large rectangular (600x400 m, 2500 pp) | 6.1 s (incl. place_all_facilities) |
+
+The multi-phase lattice generates ~4x candidate points; the overhead is
+negligible (cheap `inset.intersects(Point)` filter). `_place_community` is
+called at most `n_communities` times — same as before for large parcels where
+Phase 0 alone satisfies the target.
+
+---
+
+### Tests updated
+
+**`test_shelter_placement.py`:**
+- `run_scenario()`: new `expect_min_communities` parameter
+- Scenario F: `expect_min_communities=11` (regression floor)
+- Scenario G (new): concave parcel with western arm; asserts placed >=10
+  communities (Phase-0-only baseline=8, multi-phase result=10)
+
+---
+
+### App state at session end
+
+One clean Streamlit instance running on port 8505.
+Branch `main`. All 7 regression scenarios pass, 0.0 m2 overlap on all.
+
+---
+
 ## HANDOFF — 26 June 2026 (Site D usable-space diagnosis — DIAGNOSIS ONLY, NO FIX)
 
 ### Session objective
