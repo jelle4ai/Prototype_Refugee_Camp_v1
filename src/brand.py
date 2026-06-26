@@ -119,9 +119,18 @@ hr {
     border-width: 1px 0 0 0 !important;
 }
 
-/* Hide Streamlit's fixed top bar — it sits above the content and clips
-   the brand logo once our padding-top: 1rem override is active. */
+/* Make the Streamlit header bar blend with the page so its sidebar
+   collapse/expand toggle remains accessible without visual intrusion. */
 header[data-testid="stHeader"] {
+    background-color: #EFEBE0 !important;
+    border-bottom: none !important;
+    box-shadow: none !important;
+}
+/* Hide visual chrome inside the header but leave the sidebar toggle alone */
+[data-testid="stDeployButton"],
+[data-testid="stStatusWidget"],
+[data-testid="stDecoration"],
+[data-testid="stToolbarActions"] {
     display: none !important;
 }
 
@@ -175,9 +184,9 @@ div[data-testid="stExpander"] {
     color: #F4F1EA !important;
 }
 
-/* Main content block padding */
+/* Main content block padding — clears the now-visible transparent header (~2.875rem) */
 .block-container {
-    padding-top: 1rem !important;
+    padding-top: 3.5rem !important;
 }
 </style>
 """
