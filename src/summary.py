@@ -272,12 +272,16 @@ def _sticky_bar(gaps: list[str]) -> None:
             "</div>"
         )
     else:
-        # onclick clicks the real Streamlit Generate button by text match
+        # Dispatch a native bubbling MouseEvent so React 18's event delegation
+        # picks it up — plain .click() does not reliably trigger React handlers.
+        # Use .includes() instead of === to tolerate any whitespace padding.
         onclick = (
             "(function(){"
             "var b=Array.from(document.querySelectorAll('button'))"
-            ".find(function(x){return x.textContent.trim()==='Generate the layout'&&!x.disabled;});"
-            "if(b)b.click();"
+            ".find(function(x){"
+            "return x.textContent.trim().includes('Generate the layout')&&!x.disabled;"
+            "});"
+            "if(b)b.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true}));"
             "})();"
         )
         bar = (
