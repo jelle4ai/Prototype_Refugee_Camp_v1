@@ -1,23 +1,8 @@
 import json
 import re
 import streamlit as st
-from PIL import Image, ImageDraw
 from src.ai_client import get_ai_response
 from src.requirements_engine import compute_required_area
-
-
-def _brand_avatar(hex_color: str) -> Image.Image:
-    """64×64 circular avatar filled with the given Hamlet brand colour."""
-    size = 64
-    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(img)
-    r, g, b = int(hex_color[1:3], 16), int(hex_color[3:5], 16), int(hex_color[5:7], 16)
-    draw.ellipse([0, 0, size - 1, size - 1], fill=(r, g, b, 255))
-    return img
-
-
-_AI_AVATAR   = _brand_avatar("#1F4788")   # Hamlet Indigo for the AI assistant
-_USER_AVATAR = _brand_avatar("#8A8579")   # Muted warm-grey for the human
 
 # These nine fields gate the handoff to the map stage.
 REQUIRED_FIELDS = [
@@ -385,15 +370,14 @@ def render_input_stage() -> None:
         )
 
     # Full-width chat history
-    _avatar_map = {"assistant": _AI_AVATAR, "user": _USER_AVATAR}
     for msg in st.session_state["chat_history"]:
-        with st.chat_message(msg["role"], avatar=_avatar_map.get(msg["role"])):
+        with st.chat_message(msg["role"]):
             st.write(msg["content"])
 
     # Generate AI reply when the last message is from the user
     history = st.session_state["chat_history"]
     if history and history[-1]["role"] == "user":
-        with st.chat_message("assistant", avatar=_AI_AVATAR):
+        with st.chat_message("assistant"):
             with st.spinner(""):
                 reply = get_ai_response(
                     history,
