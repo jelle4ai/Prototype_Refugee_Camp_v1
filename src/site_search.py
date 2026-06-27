@@ -830,7 +830,7 @@ def render_location_stage() -> None:
         key="ss2_name_input", label_visibility="collapsed",
         placeholder="e.g. Enschede, Netherlands",
     )
-    if c2.button("Search", key="btn_ss2_geocode", use_container_width=True):
+    if c2.button("Search", key="btn_ss2_geocode", use_container_width=True, type="secondary"):
         result = geocode_city(new_name)
         if result:
             st.session_state.update({
