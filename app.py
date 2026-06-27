@@ -56,6 +56,18 @@ st.set_page_config(page_title="Hamlet", page_icon=_hamlet_favicon(), layout="wid
 
 STAGES = ["input", "location", "summary", "layout"]
 
+# Fields required to advance from Stage 1 and labels shown in "still needed" text.
+_STAGE1_REQUIRED = [
+    "city", "population", "men", "women", "children",
+    "climate", "duration", "cultural_notes", "special_needs",
+]
+_FIELD_LABEL = {
+    "city": "Location", "population": "Population",
+    "men": "Men", "women": "Women", "children": "Children",
+    "climate": "Climate", "duration": "Duration",
+    "cultural_notes": "Cultural notes", "special_needs": "Special needs",
+}
+
 # Facility types whose moves are actually executed. Schools / worship_facility
 # stay declined (multi-instance — needs facility numbering, not built yet),
 # and target_facility/"toward" relative moves stay declined too (v1 is
@@ -63,6 +75,83 @@ STAGES = ["input", "location", "summary", "layout"]
 EXECUTABLE_MOVE_KEYS = {
     "health_post", "food_distribution", "community_space", "administrative_area",
 }
+
+
+def _render_fixed_continue(
+    label: str,
+    enabled: bool,
+    missing: list[str],
+    btn_key: str,
+    target_stage: str,
+) -> None:
+    """Fixed bottom-right continue button. When disabled, shows visible 'still needed' line."""
+    btn_color = "#1F4788" if enabled else "#B0A898"
+    btn_cursor = "pointer" if enabled else "not-allowed"
+    arrow = " →" if enabled else ""
+
+    if missing:
+        items = ", ".join(missing[:5])
+        if len(missing) > 5:
+            items += f" +{len(missing) - 5} more"
+        missing_html = (
+            f'<div style="font-size:0.72rem;color:#8A8579;margin-top:5px;'
+            f'font-family:Inter,sans-serif;text-align:right;max-width:240px;">'
+            f'Still needed: {items}</div>'
+        )
+    else:
+        missing_html = ""
+
+    st.markdown(
+        f'<div style="position:fixed;bottom:24px;right:24px;z-index:500;text-align:right;">'
+        f'<button id="hfc-{btn_key}"'
+        f' style="background:{btn_color};color:#F4F1EA;border:none;border-radius:8px;'
+        f'font-family:Inter,sans-serif;font-weight:500;font-size:0.9rem;'
+        f'padding:0.55rem 1.4rem;cursor:{btn_cursor};'
+        f'box-shadow:0 2px 8px rgba(0,0,0,0.18);">'
+        f'{label}{arrow}</button>'
+        f'{missing_html}'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+    # Hidden Streamlit trigger (unique ⏩ prefix; JS hides it then clicks it)
+    if st.button(f"⏩{btn_key}", key=f"hfc_{btn_key}", type="primary"):
+        if enabled:
+            st.session_state["stage"] = target_stage
+            st.rerun()
+
+    components.html(
+        f"""<script>
+(function(){{
+  var KEY='{btn_key}',ENABLED={'true' if enabled else 'false'};
+  function setup(){{
+    var p=window.parent.document;
+    /* hide trigger button */
+    p.querySelectorAll('button').forEach(function(b){{
+      var t=(b.innerText||b.textContent||'').trim();
+      if(t==='⏩'+KEY){{
+        var w=b.closest('[data-testid="stButton"]')||b.parentElement;
+        if(w)w.style.cssText='height:0;overflow:hidden;margin:0;padding:0;';
+      }}
+    }});
+    /* wire fixed HTML button → trigger */
+    var btn=p.getElementById('hfc-'+KEY);
+    if(btn&&!btn._hfc){{
+      btn._hfc=true;
+      btn.addEventListener('click',function(){{
+        if(!ENABLED)return;
+        p.querySelectorAll('button').forEach(function(b){{
+          var t=(b.innerText||b.textContent||'').trim();
+          if(t==='⏩'+KEY)b.click();
+        }});
+      }});
+    }}
+  }}
+  setTimeout(setup,120);
+}})();
+</script>""",
+        height=0,
+    )
 
 
 def init_session_state():
@@ -161,6 +250,10 @@ def render_stepper(current_stage: str) -> None:
 
 def stage_input():
     render_input_stage()
+    # Fixed bottom-right continue button (reuses existing readiness check)
+    inputs = st.session_state.get("site_inputs", {})
+    missing = [_FIELD_LABEL.get(f, f) for f in _STAGE1_REQUIRED if inputs.get(f) is None]
+    _render_fixed_continue("Find a site on the map", not missing, missing, "stage1", "location")
 
 
 def stage_location():
@@ -181,10 +274,28 @@ def stage_location():
                 help="Select a site from the list to continue",
             )
     render_location_stage()
+    # Fixed bottom-right continue button
+    if not st.session_state.get("ss2_search_done"):
+        s2_missing = ["run a site search first"]
+        s2_enabled = False
+    elif not st.session_state.get("ss2_selected"):
+        s2_missing = ["select a site from the results"]
+        s2_enabled = False
+    else:
+        s2_missing = []
+        s2_enabled = True
+    _render_fixed_continue("Confirm site", s2_enabled, s2_missing, "stage2", "summary")
 
 
 def stage_summary():
     render_summary_stage()
+    # Fixed bottom-right continue button (reuses same missing-fields logic as summary.py)
+    inputs = st.session_state.get("site_inputs", {})
+    site = st.session_state.get("site")
+    s3_missing = [_FIELD_LABEL.get(f, f) for f in _STAGE1_REQUIRED if inputs.get(f) is None]
+    if site is None:
+        s3_missing.append("Selected site")
+    _render_fixed_continue("Generate the layout", not s3_missing, s3_missing, "stage3", "layout")
 
 
 def _packed_trace(items: list[dict],
