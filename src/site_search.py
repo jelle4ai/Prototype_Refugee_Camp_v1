@@ -1053,24 +1053,33 @@ def render_location_stage() -> None:
 
                 st.divider()
 
-                # ── Pros ──────────────────────────────────────────────────────
-                if pros:
-                    st.markdown("**Pros**")
-                    for pro in pros:
-                        st.markdown(
-                            f'<div style="font-size:0.8em;margin:1px 0">'
-                            f'+ {pro}</div>',
-                            unsafe_allow_html=True,
-                        )
-                # ── Cons ──────────────────────────────────────────────────────
-                if cons:
-                    st.markdown("**Cons**")
-                    for con in cons:
-                        st.markdown(
-                            f'<div style="font-size:0.8em;margin:1px 0">'
-                            f'− {con}</div>',
-                            unsafe_allow_html=True,
-                        )
+                # ── Pros — single block so JS can measure + equalise height ──
+                _pros_html = (
+                    '<div style="font-weight:600;font-size:0.88em;'
+                    'margin-bottom:3px">Pros</div>'
+                )
+                for pro in pros:
+                    _pros_html += (
+                        f'<div style="font-size:0.8em;margin:1px 0">+ {pro}</div>'
+                    )
+                st.markdown(
+                    f'<div id="ss2-pros-{c["label"]}">{_pros_html}</div>',
+                    unsafe_allow_html=True,
+                )
+
+                # ── Cons — single block so JS can measure + equalise height ──
+                _cons_html = (
+                    '<div style="font-weight:600;font-size:0.88em;'
+                    'margin-top:6px;margin-bottom:3px">Cons</div>'
+                )
+                for con in cons:
+                    _cons_html += (
+                        f'<div style="font-size:0.8em;margin:1px 0">− {con}</div>'
+                    )
+                st.markdown(
+                    f'<div id="ss2-cons-{c["label"]}">{_cons_html}</div>',
+                    unsafe_allow_html=True,
+                )
 
                 st.caption(f"Note: {_DISCLAIMER}")
 
@@ -1094,8 +1103,11 @@ def render_location_stage() -> None:
                         unsafe_allow_html=True,
                     )
 
-    # ── JS: hide trigger buttons + wire compact HTML Show-on-map buttons ────────
-    # One iframe total for all cards — same pattern as _render_fixed_continue().
+    # ── JS: hide trigger buttons, wire Show-on-map, equalise section heights ────
+    # One iframe for all cards — same pattern as _render_fixed_continue().
+    # Height equalization: measures rendered offsetHeight of each pros/cons
+    # div and sets min-height to the tallest, so all cards' sections align
+    # across columns regardless of text wrapping.
     _card_labels = [c["label"] for c in candidates]
     components.html(
         f"""<script>
@@ -1103,7 +1115,7 @@ def render_location_stage() -> None:
   var LABELS={_card_labels!r};
   function setup(){{
     var p=window.parent.document;
-    /* Hide 🗺-prefixed trigger buttons */
+    /* ── Hide 🗺-prefixed trigger buttons ────────────────────────────────── */
     p.querySelectorAll('button').forEach(function(b){{
       var t=(b.innerText||b.textContent||'').trim();
       if(t.length>=2&&t.codePointAt(0)===0x1F5FA){{
@@ -1111,7 +1123,7 @@ def render_location_stage() -> None:
         if(w)w.style.cssText='height:0;overflow:hidden;margin:0;padding:0;';
       }}
     }});
-    /* Wire each HTML compact button to its hidden trigger */
+    /* ── Wire compact HTML Show-on-map buttons to their triggers ────────── */
     LABELS.forEach(function(label){{
       var btn=p.getElementById('ss2-show-'+label);
       if(!btn||btn._wired)return;
@@ -1122,6 +1134,16 @@ def render_location_stage() -> None:
           if(t==='\U0001F5FA'+label)b.click();
         }});
       }});
+    }});
+    /* ── Equalise pros and cons section heights across all columns ──────── */
+    ['ss2-pros','ss2-cons'].forEach(function(prefix){{
+      var els=LABELS.map(function(l){{return p.getElementById(prefix+'-'+l);}})
+                    .filter(Boolean);
+      if(!els.length)return;
+      /* Reset any previous min-height so we measure natural height */
+      els.forEach(function(el){{el.style.minHeight='';}});
+      var maxH=Math.max.apply(null,els.map(function(el){{return el.offsetHeight;}}));
+      if(maxH>0)els.forEach(function(el){{el.style.minHeight=maxH+'px';}});
     }});
   }}
   setTimeout(setup,120);
