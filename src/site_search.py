@@ -1082,8 +1082,8 @@ def render_location_stage() -> None:
                 )
 
                 st.markdown(
-                    f'<div style="margin-top:10px;font-size:0.72em;'
-                    f'color:#8A8579">Note: {_DISCLAIMER}</div>',
+                    f'<div style="padding-top:14px;padding-bottom:24px;'
+                    f'font-size:0.72em;color:#8A8579">Note: {_DISCLAIMER}</div>',
                     unsafe_allow_html=True,
                 )
 
