@@ -2,6 +2,32 @@
 
 ---
 
+## HANDOFF — 27 June 2026 (Stage 1 chat-input gap nudge — 1 commit)
+
+### Session objective
+
+Close the remaining visual gap between the chat input field and the continue bar on Stage 1. Presentation/spacing only. Hard boundary: no placement, scoring, compliance, capacity, site-search, or logic touched.
+
+### What changed
+
+| # | Commit | File(s) | Change |
+|---|--------|---------|--------|
+| 1 | `1479b92` | `app.py` | Added CSS `[data-testid="stChatInput"],[data-testid="stChatInput"]>div { padding-bottom:0!important; margin-bottom:0!important; }`. Streamlit's stChatInput container had internal bottom padding that floated the visible input field above the bar's top edge, creating a visual gap even though the container itself was correctly positioned at `bottom:56px`. Zeroing that padding collapses the gap. `padding-bottom: 115px` on `.block-container` unchanged. |
+
+### Regression results
+
+12/12 passed.
+
+### How to verify
+
+Load Stage 1 at `http://localhost:8505`. Scroll to the bottom. The chat input field should sit flush (or nearly flush) against the continue bar with no visible empty band between them.
+
+### App state at session end
+
+One clean Streamlit instance on port 8505. Branch `main`.
+
+---
+
 ## HANDOFF — 27 June 2026 (Stage 1 conversation logic + 2 layout fixes — 3 commits)
 
 ### Session objective
