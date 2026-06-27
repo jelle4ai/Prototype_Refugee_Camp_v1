@@ -206,7 +206,8 @@ nav.hstep {
     padding: 5px 11px !important;
     border-radius: 4px !important;
     white-space: nowrap !important;
-    flex-shrink: 0 !important;
+    flex: 1 1 0 !important;
+    text-align: center !important;
 }
 .hs-done {
     background: transparent !important;
