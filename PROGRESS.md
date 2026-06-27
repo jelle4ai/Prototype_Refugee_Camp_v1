@@ -1933,6 +1933,40 @@ Start: `streamlit run app.py --server.port 8505`
 
 No changes to: placement, scoring, compliance gate, capacity logic, site-search (`src/site_search.py`), or Plotly map facility colours.
 
+---
+
+## HANDOFF — 27 June 2026 (Stage 1 cleanup + header — 7 commits)
+
+### Session objective
+
+Batch of Stage 1 UI cleanup and polish. Hard boundary: no placement, scoring, compliance, capacity, site-search, or map facility colours touched.
+
+### What changed
+
+| # | Commit | File(s) | Change |
+|---|--------|---------|--------|
+| C1 | `c7a233e` | `src/brand.py` | Added "Refugee camp generator · *Layouts planned around people*" as a single descriptor line under the Hamlet wordmark. Quiet and subordinate: descriptor in `#6B655E`, tagline italic in `#8A8579`, 0.8rem. Both paired as one area, not competing lines. |
+| C2 | `410f031` | `src/conversation.py` | Removed `st.header("Camp Planning — Tell us about the situation")` from `render_input_stage()`. Header now explains the tool; per-stage heading was redundant. |
+| C3 | `cdc2501` | `src/conversation.py` | Removed `_render_quick_inputs(inputs)` call. Warm/Cold/Emergency/Protracted buttons and Men/Women/Children steppers gone. Stage 1 is now purely chat-driven. Chat logic and readiness checks unchanged; sidebar still updates as AI extracts values. |
+| C4 | `a16b9e4` | `src/conversation.py` | Removed the enabled/disabled "Find a site on the map" button block at the top of `render_input_stage()`. Advancement handled by the bottom bar (C5) and the completion-summary button above the chat input. |
+| C5 | `a2c73fe` | `app.py` | Restored fixed continue bar on Stage 1 with correct bottom stacking: bar at `bottom:0`, chat input pushed up by 56px via CSS (`[data-testid=stChatInput]`, `[data-testid=stBottom]`) and JS (150ms + 500ms setTimeout). Content `padding-bottom:160px` clears both. |
+| C6 | `0a5c97e` | `src/conversation.py` | Sidebar "Planning inputs" panel: changed `:gray[not set yet]` → `<span style="color:#c0392b;">still missing</span>` for all unprovided fields (`_row()` helper, Men/Women/Children composite row, Required area row). |
+| C7 | `ebeae90` | `src/brand.py` | User chat bubble restyled to Bone surface: CSS targets `[data-testid="stChatMessage"][aria-label*="user" i]` → `background:#F4F1EA; border:1px solid #E0DACD; border-radius:12px`. |
+
+### Stage 1 bottom stacking (C5) — implementation and verification
+
+**Implementation:** CSS `[data-testid="stChatInput"] { bottom: 56px !important; }` and `[data-testid="stBottom"] { bottom: 56px !important; }` push Streamlit's chat input up; JS in `components.html(height=0)` repeats the adjustment at 150ms and 500ms to survive React re-renders. Our bar renders at `bottom: 0`. Content `padding-bottom: 160px` = 56px bar + ~76px chat input + 28px buffer.
+
+**What to verify visually:** On Stage 1, the stacking from the viewport bottom upward should be: `[continue bar]` → `[chat input box]` → `[page content]`. If the CSS selector `[data-testid="stChatInput"]` or `[data-testid="stBottom"]` does not match Streamlit 1.58's exact DOM structure, the chat input may remain at the bottom and the bar may overlap it. In that case, inspect the DOM to find the correct selector and update the CSS in `stage_input()` in `app.py`.
+
+### Regression results
+
+12/12 passed after each commit.
+
+### Engine untouched confirmation
+
+No changes to: placement, scoring, compliance gate, capacity logic, site-search (`src/site_search.py`), or Plotly map facility colours. All Stage 1 readiness checks and input-gathering logic (AI extraction, `_merge_inputs`, sidebar update) are unchanged — only the UI rendering layer was touched.
+
 **Implementation notes and flags for review:**
 
 1. **Health post (component 1, weight 7):** Scored as distance from health-post centroid to
