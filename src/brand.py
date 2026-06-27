@@ -235,6 +235,21 @@ nav.hstep {
     flex-shrink: 0 !important;
 }
 
+/* ── Fixed continue / action bar ─────────────────────────────────────────── */
+.hamlet-bot-bar {
+    position: fixed !important;
+    left: 0 !important;
+    right: 0 !important;
+    height: 56px !important;
+    background: #EFEBE0 !important;
+    border-top: 1px solid #E0DACD !important;
+    z-index: 500 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: flex-end !important;
+    padding: 0 24px !important;
+}
+
 /* Secondary buttons — ghost/outlined style for stepper back-nav and unselected toggles.
    Must come after the general .stButton rule so the !important overrides it. */
 button[data-testid="baseButton-secondary"] {

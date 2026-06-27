@@ -83,34 +83,21 @@ def _render_fixed_continue(
     missing: list[str],
     btn_key: str,
     target_stage: str,
-    bottom: int = 24,
+    bottom: int = 0,
 ) -> None:
-    """Fixed bottom-right continue button. When disabled, shows visible 'still needed' line."""
+    """Full-width fixed bottom bar with a primary continue button. Content padding is injected
+    by each stage wrapper so nothing scrolls underneath."""
     btn_color = "#1F4788" if enabled else "#B0A898"
     btn_cursor = "pointer" if enabled else "not-allowed"
     arrow = " →" if enabled else ""
 
-    if missing:
-        items = ", ".join(missing[:5])
-        if len(missing) > 5:
-            items += f" +{len(missing) - 5} more"
-        missing_html = (
-            f'<div style="font-size:0.72rem;color:#8A8579;margin-top:5px;'
-            f'font-family:Inter,sans-serif;text-align:right;max-width:240px;">'
-            f'Still needed: {items}</div>'
-        )
-    else:
-        missing_html = ""
-
     st.markdown(
-        f'<div style="position:fixed;bottom:{bottom}px;right:24px;z-index:500;text-align:right;">'
+        f'<div class="hamlet-bot-bar" style="bottom:{bottom}px;">'
         f'<button id="hfc-{btn_key}"'
         f' style="background:{btn_color};color:#F4F1EA;border:none;border-radius:8px;'
         f'font-family:Inter,sans-serif;font-weight:500;font-size:0.9rem;'
-        f'padding:0.55rem 1.4rem;cursor:{btn_cursor};'
-        f'box-shadow:0 2px 8px rgba(0,0,0,0.18);">'
+        f'padding:0.55rem 1.4rem;cursor:{btn_cursor};">'
         f'{label}{arrow}</button>'
-        f'{missing_html}'
         f'</div>',
         unsafe_allow_html=True,
     )
@@ -250,15 +237,23 @@ def render_stepper(current_stage: str) -> None:
 
 
 def stage_input():
+    # Reserve space: bar (56px) stacks above chat input (~76px) → 155px clears both.
+    st.markdown(
+        '<style>.block-container{padding-bottom:155px!important;}</style>',
+        unsafe_allow_html=True,
+    )
     render_input_stage()
-    # Fixed bottom-right continue button (reuses existing readiness check)
     inputs = st.session_state.get("site_inputs", {})
     missing = [_FIELD_LABEL.get(f, f) for f in _STAGE1_REQUIRED if inputs.get(f) is None]
-    # bottom=80 clears Streamlit's fixed st.chat_input bar at the viewport bottom
-    _render_fixed_continue("Find a site on the map", not missing, missing, "stage1", "location", bottom=80)
+    # bottom=76 positions bar above Streamlit's chat_input (~76px tall)
+    _render_fixed_continue("Find a site on the map", not missing, missing, "stage1", "location", bottom=76)
 
 
 def stage_location():
+    st.markdown(
+        '<style>.block-container{padding-bottom:72px!important;}</style>',
+        unsafe_allow_html=True,
+    )
     # Show "Confirm site" at top once a site has been selected, so the
     # primary action is visible without scrolling to the bottom of the list.
     if st.session_state.get("ss2_search_done"):
@@ -290,6 +285,10 @@ def stage_location():
 
 
 def stage_summary():
+    st.markdown(
+        '<style>.block-container{padding-bottom:72px!important;}</style>',
+        unsafe_allow_html=True,
+    )
     render_summary_stage()
     # Fixed bottom-right continue button (reuses same missing-fields logic as summary.py)
     inputs = st.session_state.get("site_inputs", {})
