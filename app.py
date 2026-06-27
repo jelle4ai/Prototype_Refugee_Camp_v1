@@ -83,6 +83,7 @@ def _render_fixed_continue(
     missing: list[str],
     btn_key: str,
     target_stage: str,
+    bottom: int = 24,
 ) -> None:
     """Fixed bottom-right continue button. When disabled, shows visible 'still needed' line."""
     btn_color = "#1F4788" if enabled else "#B0A898"
@@ -102,7 +103,7 @@ def _render_fixed_continue(
         missing_html = ""
 
     st.markdown(
-        f'<div style="position:fixed;bottom:24px;right:24px;z-index:500;text-align:right;">'
+        f'<div style="position:fixed;bottom:{bottom}px;right:24px;z-index:500;text-align:right;">'
         f'<button id="hfc-{btn_key}"'
         f' style="background:{btn_color};color:#F4F1EA;border:none;border-radius:8px;'
         f'font-family:Inter,sans-serif;font-weight:500;font-size:0.9rem;'
@@ -253,7 +254,8 @@ def stage_input():
     # Fixed bottom-right continue button (reuses existing readiness check)
     inputs = st.session_state.get("site_inputs", {})
     missing = [_FIELD_LABEL.get(f, f) for f in _STAGE1_REQUIRED if inputs.get(f) is None]
-    _render_fixed_continue("Find a site on the map", not missing, missing, "stage1", "location")
+    # bottom=80 clears Streamlit's fixed st.chat_input bar at the viewport bottom
+    _render_fixed_continue("Find a site on the map", not missing, missing, "stage1", "location", bottom=80)
 
 
 def stage_location():
@@ -544,7 +546,7 @@ def _clear_feedback_state() -> None:
 
 
 def stage_layout():
-    st.header("Stage: Layout")
+    st.header("Layout result")
 
     inputs = st.session_state.get("site_inputs", {})
     site   = st.session_state.get("site")

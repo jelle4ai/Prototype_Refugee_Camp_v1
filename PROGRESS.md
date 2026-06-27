@@ -2,6 +2,78 @@
 
 ---
 
+## HANDOFF — 27 June 2026 (Navigation frame — 3 commits)
+
+### Session objective
+
+Build a consistent navigation frame across all 4 stages: a sticky top progress bar and a fixed always-visible primary continue button with visible "still needed" text. Hard boundary: no placement, scoring, compliance gate, capacity, site-search, or map facility colours touched.
+
+### What changed
+
+| # | Commit | File(s) | Change |
+|---|--------|---------|--------|
+| 1 | `8ad9975` | `app.py`, `src/brand.py` | Sticky top progress bar. Replaces Streamlit-column stepper with HTML `<nav class="hstep">` at `position: sticky; top: 2.875rem`. Completed steps: green border + ✓ check, clickable via JS-wired hidden Streamlit back-nav buttons (unique ⬅ prefix). Current step: indigo fill. Future steps: muted grey. CSS added to brand.py under `.hstep`/`.hs-*` classes. Removed redundant `st.divider()` after stepper. |
+| 2 | `f83311e` | `app.py` | Fixed bottom-right continue button. Each of Stages 1–3 gets a `position: fixed; bottom: Xpx; right: 24px` HTML button wired via hidden Streamlit trigger (⏩ prefix) and `components.html` JS. Disabled = grey + "Still needed: …" text visible in plain sight. Enabled = indigo + arrow. Stage 4 gets no fixed button (terminal). |
+| 3 | `(pending)` | `app.py` | Consistency pass: fix Stage 4 header ("Stage: Layout" → "Layout result"), add `bottom` parameter to `_render_fixed_continue()`, set `bottom=80` for Stage 1 to clear Streamlit's fixed `st.chat_input` bar. |
+
+### Implementation architecture
+
+**Back-navigation (sticky bar → Python):** HTML bar's completed-step `<button data-hs-nav="X">` buttons are connected to hidden Streamlit secondary buttons (text `⬅X`) via `components.html(height=0)` JS using `window.parent.document.querySelectorAll`. The hidden buttons call `_navigate_to()` which is the existing back-nav handler — no new navigation logic.
+
+**Continue button (fixed HTML → Python):** Same pattern: HTML `<button id="hfc-KEY">` wired via JS to hidden Streamlit primary buttons (text `⏩KEY`). The hidden button sets `session_state["stage"]` and reruns — identical to the existing top buttons in each stage.
+
+**Readiness checks reused, not invented:**
+- Stage 1: checks `_STAGE1_REQUIRED` fields (mirrors `REQUIRED_FIELDS` in conversation.py)
+- Stage 2: `ss2_search_done` and `ss2_selected` (existing state keys in site_search.py)
+- Stage 3: same field list + checks `site is not None`
+
+### Data-safety decisions
+
+`_navigate_to()` is the only back-navigation path used — it correctly clears `layout_result` and feedback state when navigating before Stage 4. No parallel navigation path created.
+
+Forward navigation from the fixed continue button only transitions to the next stage when readiness conditions are met (guarded in Python on the hidden Streamlit button handler — `if enabled`).
+
+### Engine untouched confirmation
+
+No changes to: placement, scoring, compliance gate, capacity logic, site-search (`src/site_search.py`), requirements engine, layout engine, or Plotly map facility colours.
+
+### Regression results
+
+12/12 passed after each commit.
+
+### How to test
+
+Start: `streamlit run app.py --server.port 8505`
+
+**Commit 1 — sticky progress bar:**
+- Load Stage 1. Stepper shows "1. Information gathering" in indigo, steps 2–4 greyed.
+- Scroll down on a long chat: bar should remain visible at the top (sticky).
+- Fill all fields → advance to Stage 2. Stepper shows "✓ 1. Information gathering" in green.
+- Click the green step 1 → should return to Stage 1 (back-nav working).
+- Advance to Stage 3: steps 1 and 2 both green.
+- Advance to Stage 4: steps 1–3 green, step 4 current/indigo.
+
+**Commit 2 — fixed continue button:**
+- On Stage 1 with fields missing: button is grey, "Still needed: Location, Population, …" visible below it.
+- Fill all fields via chat: "Still needed" line disappears, button turns indigo.
+- Click indigo button → advances to Stage 2.
+- On Stage 2 before searching: button grey, "Still needed: run a site search first".
+- After search, before selecting: "Still needed: select a site from the results".
+- After selecting: button indigo → advances to Stage 3.
+- On Stage 3 with fields: same disabled/enabled behaviour → advances to Stage 4.
+
+**Commit 3 — consistency:**
+- Stage 4 header reads "Layout result" (not "Stage: Layout").
+- Stage 1's fixed button is high enough to not overlap the chat input bar.
+
+### Deferred / not attempted
+
+- True `position: fixed` (vs sticky) for the top bar — sticky was chosen as it degrades gracefully and avoids iframe positioning complexity.
+- Removing the legacy "top" continue buttons from each stage module — those remain as a secondary affordance; not harmful.
+- Scroll-padding-top for anchor links — not needed (app uses no anchor links).
+
+---
+
 ## HANDOFF — 27 June 2026 (Stage 1 disaster-topic fix — 1 commit)
 
 ### Session objective
