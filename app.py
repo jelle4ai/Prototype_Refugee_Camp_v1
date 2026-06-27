@@ -250,10 +250,8 @@ def stage_input():
     # empty interior was creating the large visual gap). Padding covers bar + input widget.
     st.markdown(
         """<style>
-.block-container{padding-bottom:115px!important;}
-[data-testid="stChatInput"]{bottom:56px!important;}
-[data-testid="stChatInput"],[data-testid="stChatInput"]>div{
-    padding-bottom:0!important;margin-bottom:0!important;}
+.block-container{padding-bottom:140px!important;}
+[data-testid="stChatInput"]{bottom:68px!important;}
 </style>""",
         unsafe_allow_html=True,
     )
@@ -268,7 +266,7 @@ def stage_input():
   function push(){
     var p=window.parent.document;
     var el=p.querySelector('[data-testid="stChatInput"]');
-    if(el){el.style.setProperty('bottom','56px','important');}
+    if(el){el.style.setProperty('bottom','68px','important');}
   }
   setTimeout(push,150);
   setTimeout(push,500);
