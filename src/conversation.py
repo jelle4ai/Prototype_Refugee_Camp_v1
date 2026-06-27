@@ -345,8 +345,6 @@ def _render_completion_summary(inputs: dict) -> None:
 # ── Main render entry point ───────────────────────────────────────────────────
 
 def render_input_stage() -> None:
-    st.header("Camp Planning — Tell us about the situation")
-
     if "chat_history" not in st.session_state:
         st.session_state["chat_history"] = [
             {"role": "assistant", "content": _OPENING_MESSAGE}
