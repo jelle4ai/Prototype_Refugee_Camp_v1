@@ -184,12 +184,14 @@ def _render_sidebar(inputs: dict) -> None:
         st.markdown("### Planning inputs")
         st.divider()
 
+        _MISSING = '<span style="color:#c0392b;font-size:0.85em;">still missing</span>'
+
         def _row(label: str, value, fmt=None):
             if value is not None:
                 display = fmt(value) if fmt else str(value)
                 st.markdown(f"**{label}:** {display}")
             else:
-                st.markdown(f"**{label}:** :gray[not set yet]")
+                st.markdown(f"**{label}:** {_MISSING}", unsafe_allow_html=True)
 
         _row("Location",   inputs.get("city"))
         _row("Population", inputs.get("population"), lambda v: f"{v:,}")
@@ -199,7 +201,7 @@ def _render_sidebar(inputs: dict) -> None:
             def _n(x): return f"{x:,}" if x is not None else "—"
             st.markdown(f"**Men / Women / Children:** {_n(m)} / {_n(w)} / {_n(c)}")
         else:
-            st.markdown("**Men / Women / Children:** :gray[not set yet]")
+            st.markdown(f"**Men / Women / Children:** {_MISSING}", unsafe_allow_html=True)
 
         _row("Climate",       inputs.get("climate"),  str.capitalize)
         _row("Duration",      inputs.get("duration"), str.capitalize)
@@ -211,7 +213,7 @@ def _render_sidebar(inputs: dict) -> None:
             side = inputs["suggested_side_m"]
             st.markdown(f"**Required area:** ~{ha:.1f} ha (about {side} × {side} m)")
         else:
-            st.markdown("**Required area:** :gray[not set yet]")
+            st.markdown(f"**Required area:** {_MISSING}", unsafe_allow_html=True)
 
         # Site services — subheading appears only once at least one is filled
         svc = {f: inputs.get(f) for f in SERVICE_FIELDS}
