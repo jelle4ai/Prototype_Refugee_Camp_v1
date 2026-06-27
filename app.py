@@ -245,16 +245,40 @@ def render_stepper(current_stage: str) -> None:
 
 
 def stage_input():
-    # Padding clears Streamlit's sticky chat_input (~76px) so content doesn't scroll behind it.
-    # No fixed bottom bar here — render_input_stage() already provides an enabled/disabled
-    # "Find a site on the map" button at the top of the page AND a second one inside the
-    # completion-summary panel just above the chat input, so the fixed bar is not needed
-    # and was colliding with st.chat_input().
+    # Stage 1 bottom stacking (bottom → top): continue bar → chat input → content.
+    # CSS pushes Streamlit's chat input up by 56px (bar height); JS repeats after React
+    # re-renders. Content padding clears both fixed elements combined (~132px) + buffer.
     st.markdown(
-        '<style>.block-container{padding-bottom:90px!important;}</style>',
+        """<style>
+.block-container{padding-bottom:160px!important;}
+[data-testid="stChatInput"]{bottom:56px!important;}
+[data-testid="stBottom"]{bottom:56px!important;}
+</style>""",
         unsafe_allow_html=True,
     )
     render_input_stage()
+    inputs = st.session_state.get("site_inputs", {})
+    missing = [_FIELD_LABEL.get(f, f) for f in _STAGE1_REQUIRED if inputs.get(f) is None]
+    _render_fixed_continue("Find a site on the map", not missing, missing, "stage1", "location", bottom=0)
+    # Belt-and-suspenders: JS adjusts chat input after React finishes rendering.
+    components.html(
+        """<script>
+(function(){
+  function push(){
+    var p=window.parent.document;
+    var targets=['[data-testid="stChatInput"]','[data-testid="stBottom"]',
+                 'div[class*="stChatInput"]'];
+    for(var i=0;i<targets.length;i++){
+      var el=p.querySelector(targets[i]);
+      if(el){el.style.setProperty('bottom','56px','important');return;}
+    }
+  }
+  setTimeout(push,150);
+  setTimeout(push,500);
+})();
+</script>""",
+        height=0,
+    )
 
 
 def stage_location():
