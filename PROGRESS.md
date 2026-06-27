@@ -2,6 +2,38 @@
 
 ---
 
+## HANDOFF — 27 June 2026 (Stage 1 chat-input gap — diagnosis + fix — 1 commit)
+
+### Session objective
+
+Apply the exact fix identified by the preceding diagnosis session: reduce `stChatInput` `padding-bottom` from `68px` to `10px`. Hard boundary: no logic touched.
+
+### The fix
+
+| # | Commit | File(s) | Change |
+|---|--------|---------|--------|
+| 1 | `60203ac` | `app.py` | `[data-testid="stChatInput"]{padding-bottom:68px}` → `10px`. Matching JS value also `68px` → `10px`. Removed the `>div{padding-bottom:0}` CSS rule and its JS counterpart (was needlessly stripping internal box padding without affecting position). Updated stale comment. |
+
+### Why it works (from diagnosis)
+
+Streamlit's `stBottomBlockContainer` already provides `padding-bottom: 3.5rem = 56px` below the chat input box — placing the box flush with our 56px bar by default. Our previous `68px` override on `stChatInput` stacked *on top* of that `56px`, pushing the box to `56 + 68 = 124px` from the viewport bottom and creating a `68px` visual gap above the bar.
+
+New value `10px`: box bottom sits at `56 + 10 = 66px` → `10px` gap above bar top (56px).
+
+### Regression results
+
+12/12 passed.
+
+### How to verify
+
+Load Stage 1 at `http://localhost:8505`. Scroll to the bottom. The chat input box should appear as a complete, un-cut box sitting roughly **10px above the continue bar**, with no large empty space between them.
+
+### App state at session end
+
+One clean Streamlit instance on port 8505. Branch `main`.
+
+---
+
 ## HANDOFF — 27 June 2026 (Stage 1 chat-input precise positioning — 1 commit)
 
 ### Session objective
