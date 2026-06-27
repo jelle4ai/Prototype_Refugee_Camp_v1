@@ -1095,7 +1095,7 @@ def render_location_stage() -> None:
         })
         st.rerun()
 
-    # ── Selected parcel detail ────────────────────────────────────────────────
+    # ── Selected parcel — fetch roads then advance to review ─────────────────
     sel_label = st.session_state["ss2_selected"]
     if sel_label is None:
         return
@@ -1104,16 +1104,17 @@ def render_location_stage() -> None:
     if sel is None:
         return
 
-    st.divider()
-    st.subheader(f"Site {sel_label} — detailed view")
-
-    bb = sel["bbox"]
-    origin_lat, origin_lon = bb[0], bb[1]
-    width_m  = abs(latlon_to_metres(bb[0], bb[3], origin_lat, origin_lon)[0])
-    length_m = abs(latlon_to_metres(bb[2], bb[1], origin_lat, origin_lon)[1])
-
+    # Only runs once per selection (ss2_roads_done is reset when a new site is
+    # selected).  When roads_done is already True (e.g. user navigated back from
+    # Stage 3), the site dict is already in session_state["site"]; the fixed
+    # bottom bar in stage_location() lets the user advance again.
     if not st.session_state["ss2_roads_done"]:
-        with st.spinner("Detecting roads within selected site area..."):
+        bb = sel["bbox"]
+        origin_lat, origin_lon = bb[0], bb[1]
+        width_m  = abs(latlon_to_metres(bb[0], bb[3], origin_lat, origin_lon)[0])
+        length_m = abs(latlon_to_metres(bb[2], bb[1], origin_lat, origin_lon)[1])
+
+        with st.spinner("Detecting roads and preparing site…"):
             roads_m, roads_err = _fetch_parcel_roads(
                 bb[0], bb[1], bb[2], bb[3], origin_lat, origin_lon
             )
@@ -1129,58 +1130,26 @@ def render_location_stage() -> None:
             st.session_state["ss2_roads_cache"][sel_label] = roads_m
             st.session_state.update({"ss2_roads_m": roads_m, "ss2_roads_error": ""})
         st.session_state["ss2_roads_done"] = True
-        st.rerun()
 
-    roads_m   = st.session_state["ss2_roads_m"]
-    roads_err = st.session_state["ss2_roads_error"]
-
-    if roads_err and roads_m:
-        st.warning(
-            f"Road detection issue: {roads_err} — showing {len(roads_m)} road "
-            f"segment(s) from an earlier successful fetch for this site."
-        )
-    elif roads_err:
-        st.warning(f"Road detection issue: {roads_err} — no road data available "
-                   f"for this site. Try selecting it again to retry.")
-    elif roads_m:
-        st.success(f"{len(roads_m)} road segment(s) detected within site area.")
-    else:
-        st.info("No existing roads detected within the site boundary.")
-
-    st.plotly_chart(_detail_fig(sel, origin_lat, origin_lon, roads_m), use_container_width=True)
-
-    # Single-parcel polygon in local metre coordinates from SW corner of bbox
-    parcel_polygon_m = [
-        latlon_to_metres(la, lo, origin_lat, origin_lon)
-        for la, lo in sel["nodes_latlon"]
-    ]
-
-    st.session_state["site"] = {
-        "origin_lat":       origin_lat,
-        "origin_lon":       origin_lon,
-        "width_m":          float(width_m),
-        "length_m":         float(length_m),
-        "centre_lat":       sel["centroid_lat"],
-        "centre_lon":       sel["centroid_lon"],
-        "parcel_polygon_m": parcel_polygon_m,
-        "roads_m":          roads_m,
-        "roads_fetch_error": roads_err,
-    }
-
-    st.divider()
-    est_cap  = sel.get("est_capacity_pp", 0)
-    est_comm = sel.get("est_communities", 0)
-    pop_conf = inputs.get("population", 0)
-    if est_cap > 0:
-        buffer_pct = round((est_cap / pop_conf - 1) * 100) if pop_conf > 0 else 0
-        st.info(
-            f"**Estimated capacity: ~{est_cap:,} people** "
-            f"({est_comm} community slots after 35 m margin, {buffer_pct:+d}% vs required). "
-            f"Generation will confirm the exact fit."
-        )
-    if st.button(
-        "Confirm site", type="primary",
-        use_container_width=True, key="btn_ss2_confirm",
-    ):
+        # Build the site dict immediately after road fetch and advance.
+        # Stage 3 (Review and confirm) is the single confirmation point;
+        # the old separate confirm step in Stage 2 was redundant.
+        roads_m_final   = st.session_state["ss2_roads_m"]
+        roads_err_final = st.session_state["ss2_roads_error"]
+        parcel_polygon_m = [
+            latlon_to_metres(la, lo, origin_lat, origin_lon)
+            for la, lo in sel["nodes_latlon"]
+        ]
+        st.session_state["site"] = {
+            "origin_lat":        origin_lat,
+            "origin_lon":        origin_lon,
+            "width_m":           float(width_m),
+            "length_m":          float(length_m),
+            "centre_lat":        sel["centroid_lat"],
+            "centre_lon":        sel["centroid_lon"],
+            "parcel_polygon_m":  parcel_polygon_m,
+            "roads_m":           roads_m_final,
+            "roads_fetch_error": roads_err_final,
+        }
         st.session_state["stage"] = "summary"
         st.rerun()
