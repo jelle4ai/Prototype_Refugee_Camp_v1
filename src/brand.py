@@ -254,12 +254,12 @@ nav.hstep {
 
 /* Secondary buttons — ghost/outlined style for stepper back-nav and unselected toggles.
    Must come after the general .stButton rule so the !important overrides it. */
-button[data-testid="baseButton-secondary"] {
+button[data-testid="stBaseButton-secondary"] {
     background-color: transparent !important;
     color: #1F4788 !important;
     border: 1px solid #E0DACD !important;
 }
-button[data-testid="baseButton-secondary"]:hover {
+button[data-testid="stBaseButton-secondary"]:hover {
     background-color: #EFEBE0 !important;
     color: #1F4788 !important;
     border-color: #1F4788 !important;
