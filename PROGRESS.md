@@ -2,6 +2,39 @@
 
 ---
 
+## HANDOFF — 28 June 2026 (Stage 2 screening note spacing)
+
+### Session objective
+
+Add clear breathing room above AND below the screening note in each candidate card. Presentation only — no logic touched.
+
+### What changed
+
+| Commit | File | Change |
+|--------|------|--------|
+| `e559719` | `src/site_search.py` | Replaced `margin-top:10px` on the note div with `padding-top:14px;padding-bottom:24px`. |
+
+### Why padding instead of margin
+
+Every `st.markdown()` call inside a vertical container gets `marginBottom: -spacing.lg` (~-16px) from Streamlit's stMarkdown styled-component CSS. This correction is designed to cancel the default `<p>` margin-bottom but "over-corrects" for divs, eating into any `margin-bottom` set on the note div and leaving almost no visible gap below. Using `padding-bottom` instead: padding contributes directly to the container's rendered height and is unaffected by the stMarkdown correction. `padding-bottom:24px` leaves a minimum of ~8px visible gap below the note even after the -16px correction; `padding-top:14px` gives clear space above. Button alignment across cards is unchanged (padding is uniform across all cards and the JS height equaliser only targets pros/cons divs, not the note).
+
+### Regression results
+
+12/12 passed.
+
+### How to verify
+
+Hard-reload **http://localhost:8505** (Ctrl+Shift+R), run a search (Enschede, pop=1100):
+- In each candidate card, the screening note ("Note: Screening based on map data only...") has a clear visible gap above it (separating it from the Cons section) and a clear visible gap below it (before the "Select site" button).
+- The note text size is unchanged (0.72em, muted grey).
+- "Select site" buttons are still aligned across all columns.
+
+### App state at session end
+
+One clean Streamlit instance on port 8505. Branch `main`.
+
+---
+
 ## HANDOFF — 27 June 2026 (Stage 2 card fixes — 3 commits)
 
 ### Session objective
