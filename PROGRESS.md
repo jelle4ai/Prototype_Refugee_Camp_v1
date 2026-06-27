@@ -2,6 +2,42 @@
 
 ---
 
+## HANDOFF — 27 June 2026 (Stage 1 chat-input precise positioning — 1 commit)
+
+### Session objective
+
+Pin the chat input precisely above the continue bar using a concrete target (8–12px gap), not a vague nudge. Previous sessions used `bottom: Xpx` on `stChatInput` which had no effect. This session identified the actual control mechanism and applied it correctly.
+
+### Root cause diagnosis
+
+All previous `bottom: Xpx` attempts on `[data-testid="stChatInput"]` had no effect because `stChatInput` is `position: static` — CSS `bottom` is ignored on non-positioned elements. The actual mechanism is `stChatInput`'s own `padding-bottom`: it creates the visual buffer between the input field and the fixed bar's top edge. Gap = `padding_bottom − bar_height`. Setting it to 0 (commit `1479b92`) caused cutoff; the Streamlit default is large → large gap.
+
+### What changed
+
+| # | Commit | File(s) | Change |
+|---|--------|---------|--------|
+| 1 | `a6debe5` | `app.py` | Replaced `bottom:68px` (no-op) with `padding-bottom:68px` on `[data-testid="stChatInput"]` — this directly sets the visual gap to 56 (bar height) + 12 (safe gap) = 68px. Zeroed `padding-bottom` on `>div` children so they don't stack with the parent. JS reinforces both values after React re-renders. `block-container` `padding-bottom` set to 160px to clear the full stBottom container above the bar. |
+
+### Positioning formula
+
+`stChatInput padding-bottom = bar_height + desired_gap = 56 + 12 = 68px`
+
+If the gap needs adjustment in future: change the `68` in three places — CSS outer, CSS children (keep at 0), and JS. The bar height (56px, defined in `.hamlet-bot-bar`) must match.
+
+### Regression results
+
+12/12 passed.
+
+### How to verify
+
+Load Stage 1 at `http://localhost:8505`. Scroll to the bottom. The chat input should appear as a complete, un-cut box sitting roughly 12px above the continue bar, with the two elements reading as a connected bottom unit.
+
+### App state at session end
+
+One clean Streamlit instance on port 8505. Branch `main`.
+
+---
+
 ## HANDOFF — 27 June 2026 (Stage 1 chat-input cutoff fix — 1 commit)
 
 ### Session objective
