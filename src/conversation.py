@@ -399,12 +399,9 @@ def render_input_stage() -> None:
         _merge_inputs(_extract_inputs(history))
         st.rerun()
 
-    # Completion summary + handoff (replaces quick inputs when done)
+    # Completion summary when all fields are collected
     if _all_collected():
         _render_completion_summary(inputs)
-    else:
-        # Inline quick-input row above the chat box
-        _render_quick_inputs(inputs)
 
     # Sticky chat input (page footer)
     if user_input := st.chat_input("Type your message here…"):
