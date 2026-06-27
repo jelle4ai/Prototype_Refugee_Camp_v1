@@ -2,6 +2,49 @@
 
 ---
 
+## HANDOFF — 27 June 2026 (Stage 2 small styling refinements — 3 commits)
+
+### Session objective
+
+Three small presentation-only polish items on Stage 2 candidate cards and the location search bar. No engine, capacity, fits, or site-search logic touched.
+
+### What changed
+
+| # | Commit | File(s) | Change |
+|---|--------|---------|--------|
+| 1 | `f08f78f` | `src/site_search.py` | Facts table wrapper: `border-radius:4px → 6px` (matches "Show on map" button's 6px). `margin-bottom:6px → 0` so no gap appears between the "Fits" row and the following divider — eliminating the perceived empty row below the table. |
+| 2 | `a4c5325` | `src/site_search.py` | Screening note: replaced `st.caption()` with an HTML div at `font-size:0.72em` (smaller than caption's ~0.8em) and `margin-top:10px` (clear blank-line gap before it). Color remains muted `#8A8579`. |
+| 3 | `1f35677` | `src/site_search.py` | Location "Search" button: added `type="secondary"` so Streamlit renders it with `data-testid="baseButton-secondary"`, which the brand CSS ghost rule targets. Without explicit type, Streamlit may not set the attribute, leaving the button indigo. Now renders as ghost/bone (transparent bg, indigo text, bone border). |
+
+### Hard-boundary confirmation
+
+- Placement, scoring, compliance, capacity-estimate logic: **untouched**
+- Fits/too-small determination: **untouched**
+- Site-search logic: **untouched**
+- Map facility colours: **untouched**
+
+### Regression results
+
+All three commits: 12/12 passed.
+
+### How to test
+
+Start at `http://localhost:8505`, Enschede, pop=1100:
+
+**Facts table (Commit 1):** Table wrapper has same 6px rounding as the "Show on map" button directly above it. No visible gap below the "Fits" row — the table ends cleanly and the `st.divider()` follows immediately.
+
+**Screening note (Commit 2):** The "Note: Screening based on..." text has a clear blank line above it and is noticeably smaller than the pros/cons text.
+
+**Search button (Commit 3):** The "Search" button next to the place-name input is ghost/bone (transparent background, indigo text, bone border), not indigo. "Find candidate sites" stands out as the clear primary action.
+
+**Full flow:** Site select → Stage 3 still works normally.
+
+### App state at session end
+
+One clean Streamlit instance on port 8505. Branch `main`.
+
+---
+
 ## HANDOFF — 27 June 2026 (Stage 2 card refinements — 3 commits)
 
 ### Session objective
