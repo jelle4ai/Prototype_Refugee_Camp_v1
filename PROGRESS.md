@@ -14,7 +14,7 @@ Build a consistent navigation frame across all 4 stages: a sticky top progress b
 |---|--------|---------|--------|
 | 1 | `8ad9975` | `app.py`, `src/brand.py` | Sticky top progress bar. Replaces Streamlit-column stepper with HTML `<nav class="hstep">` at `position: sticky; top: 2.875rem`. Completed steps: green border + ✓ check, clickable via JS-wired hidden Streamlit back-nav buttons (unique ⬅ prefix). Current step: indigo fill. Future steps: muted grey. CSS added to brand.py under `.hstep`/`.hs-*` classes. Removed redundant `st.divider()` after stepper. |
 | 2 | `f83311e` | `app.py` | Fixed bottom-right continue button. Each of Stages 1–3 gets a `position: fixed; bottom: Xpx; right: 24px` HTML button wired via hidden Streamlit trigger (⏩ prefix) and `components.html` JS. Disabled = grey + "Still needed: …" text visible in plain sight. Enabled = indigo + arrow. Stage 4 gets no fixed button (terminal). |
-| 3 | `(pending)` | `app.py` | Consistency pass: fix Stage 4 header ("Stage: Layout" → "Layout result"), add `bottom` parameter to `_render_fixed_continue()`, set `bottom=80` for Stage 1 to clear Streamlit's fixed `st.chat_input` bar. |
+| 3 | `8d43c0d` | `app.py` | Consistency pass: fix Stage 4 header ("Stage: Layout" → "Layout result"), add `bottom` parameter to `_render_fixed_continue()`, set `bottom=80` for Stage 1 to clear Streamlit's fixed `st.chat_input` bar. |
 
 ### Implementation architecture
 
