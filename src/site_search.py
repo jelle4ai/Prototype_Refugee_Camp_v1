@@ -1000,25 +1000,28 @@ def render_location_stage() -> None:
                     if fits else
                     '<span style="color:#b71c1c;font-weight:600">✗ Too small</span>'
                 )
+                # Wrapped in a div so border-radius + overflow:hidden clips the
+                # table to rounded corners matching the thumbnail above it.
                 st.markdown(
-                    f'<table style="width:100%;font-size:0.8em;'
-                    f'border-collapse:collapse;margin-bottom:6px">'
-                    f'<tr><td style="color:#8A8579;padding:2px 4px 2px 0;'
-                    f'white-space:nowrap">Area</td>'
-                    f'<td style="text-align:right;font-weight:500">'
+                    f'<div style="border:1px solid #E0DACD;border-radius:4px;'
+                    f'overflow:hidden;margin-bottom:6px">'
+                    f'<table style="width:100%;font-size:0.8em;border-collapse:collapse">'
+                    f'<tr>'
+                    f'<td style="color:#232323;padding:3px 6px 3px 8px;white-space:nowrap">Area</td>'
+                    f'<td style="color:#232323;text-align:right;font-weight:500;padding:3px 8px 3px 4px">'
                     f'{c["area_ha"]:.1f} ha</td></tr>'
-                    f'<tr><td style="color:#8A8579;padding:2px 4px 2px 0;'
-                    f'white-space:nowrap">Distance</td>'
-                    f'<td style="text-align:right;font-weight:500">'
+                    f'<tr>'
+                    f'<td style="color:#232323;padding:3px 6px 3px 8px;white-space:nowrap">Distance</td>'
+                    f'<td style="color:#232323;text-align:right;font-weight:500;padding:3px 8px 3px 4px">'
                     f'{dist_km:.1f} km</td></tr>'
-                    f'<tr><td style="color:#8A8579;padding:2px 4px 2px 0;'
-                    f'white-space:nowrap">Est. capacity</td>'
-                    f'<td style="text-align:right;font-weight:500">'
+                    f'<tr>'
+                    f'<td style="color:#232323;padding:3px 6px 3px 8px;white-space:nowrap">Est. capacity</td>'
+                    f'<td style="color:#232323;text-align:right;font-weight:500;padding:3px 8px 3px 4px">'
                     f'~{est_cap:,} pp</td></tr>'
-                    f'<tr><td style="color:#8A8579;padding:2px 4px 2px 0;'
-                    f'white-space:nowrap">Fits</td>'
-                    f'<td style="text-align:right">{fits_badge}</td></tr>'
-                    f'</table>',
+                    f'<tr>'
+                    f'<td style="color:#232323;padding:3px 6px 3px 8px;white-space:nowrap">Fits</td>'
+                    f'<td style="text-align:right;padding:3px 8px 3px 4px">{fits_badge}</td></tr>'
+                    f'</table></div>',
                     unsafe_allow_html=True,
                 )
 
