@@ -2,6 +2,58 @@
 
 ---
 
+## HANDOFF — 27 June 2026 (Brand CSS secondary button selector fix)
+
+### Session objective
+
+Fix a CSS selector mismatch that caused the secondary/ghost button style to never apply to any button in the app. Presentation only — no logic touched.
+
+### Root cause
+
+Streamlit 1.58.0 emits `data-testid="stBaseButton-secondary"` on the inner `<button>` element. The brand CSS in `src/brand.py` was targeting `button[data-testid="baseButton-secondary"]` (missing the `st` prefix). The selector never matched, so all secondary buttons rendered as indigo primary instead of the intended ghost/bone style.
+
+### What changed
+
+| Commit | File | Change |
+|--------|------|--------|
+| `7c38ab1` | `src/brand.py` | Changed both occurrences of `button[data-testid="baseButton-secondary"]` to `button[data-testid="stBaseButton-secondary"]` — the base rule (lines 257–261) and the `:hover` rule (lines 262–266). |
+
+### Primary button check
+
+No `baseButton-primary` selector exists in `brand.py`. Primary buttons get their indigo style from the broad `.stButton > button` rule, which targets the wrapper div class and has no `data-testid` dependency — so primary buttons have always worked correctly.
+
+### Scope of effect
+
+Every `type="secondary"` button in the app now receives the ghost/bone style (transparent background, `#1F4788` text, `1px solid #E0DACD` border). This includes:
+- Stage 2 location "Search" button
+- Stage 2 "Select site" secondary state
+- Any stepper back-navigation buttons
+- Stage 2 "Unzoom" / "Show on map" HTML buttons are unaffected (inline CSS, not Streamlit buttons)
+
+### Hard-boundary confirmation
+
+- Logic, capacity, fits, site-search: **untouched**
+- Map colours: **untouched**
+- Only `src/brand.py` changed (CSS string)
+
+### Regression results
+
+12/12 passed.
+
+### How to verify
+
+Hard-reload **http://localhost:8505** (Ctrl+Shift+R). Run a search (e.g. Enschede, pop=1100):
+- The "Search" button next to the location input is now ghost/bone (transparent bg, indigo text, bone border) — no longer indigo.
+- "Find candidate sites" still stands out as the clear primary (indigo) action.
+- "Select site" on unselected cards is ghost/bone; "Selected ✓" on selected card is indigo primary — both correct.
+- No button that was previously indigo should have changed *except* those explicitly typed as secondary.
+
+### App state at session end
+
+One clean Streamlit instance on port 8505. Branch `main`.
+
+---
+
 ## HANDOFF — 27 June 2026 (Stage 2 small styling refinements — 3 commits)
 
 ### Session objective
