@@ -1873,6 +1873,66 @@ is byte-for-byte identical. The score will look numerically different from the o
 - entrance_quality (x1) — PA3 moved to road_network; external roads = site property, not layout quality
 - expansion_buffer (x1) — no Appendix E equivalent
 
+---
+
+## HANDOFF — 27 June 2026 (Navigation frame layout fix — 3 commits)
+
+### Session objective
+
+Fix two visual bugs introduced by the reserved-bottom-bar commits (`9ea12c3`, `b0e7f66`):
+1. On Stage 1, the fixed continue bar covered Streamlit's `st.chat_input()`, making it impossible to type.
+2. On all stages, the bar appeared to float a few pixels above the viewport bottom instead of being flush.
+
+Hard boundary: no placement, scoring, compliance, capacity, site-search, or map facility colours touched.
+
+### Root cause analysis
+
+**Floating gap (all stages):** `brand.py` used `footer { visibility: hidden; }` and `#MainMenu { visibility: hidden; }`. `visibility: hidden` hides the elements visually but **preserves their layout space**. Our `position: fixed; bottom: 0` bar was flush to the true viewport bottom, but the footer's reserved empty space below the bar made it appear to float. Fix: `display: none !important` removes the elements from the layout entirely.
+
+**Stage 1 chat-input collision:** Our bar at `bottom: 76px; height: 56px` was supposed to sit above Streamlit's `st.chat_input()`. However, the chat input's actual occupied height (including padding and Streamlit's internal container) exceeded our estimate. The bar was placed over the chat input, blocking keyboard focus.
+
+### Fix strategy — Stage 1 (fallback approach)
+
+The acceptable fallback was taken: **no fixed bottom bar on Stage 1**. This is the correct call because `render_input_stage()` in `conversation.py` already provides the continue action at two locations in the normal page flow:
+- **Top of page (lines 371–383):** a full-width enabled/disabled "Find a site on the map" button that is always visible without scrolling.
+- **Completion-summary panel (line 340):** a second "Find a site on the map" button rendered just above `st.chat_input()` inside `_render_completion_summary()` — visible when all 9 fields are collected.
+
+The fixed bar was a redundant third button that collided with the framework's own chat input positioning. Removing it from `stage_input()` fully resolves the collision with no UX regression.
+
+**Stage 1 padding:** Reduced from 155px (bar + chat-input clearance) to 90px (chat-input clearance only), so content scrolls to a reasonable stopping point above Streamlit's sticky chat input.
+
+### What changed
+
+| # | Commit | File(s) | Change |
+|---|--------|---------|--------|
+| 1 | `9ea12c3` | `app.py`, `src/brand.py` | Full-width `.hamlet-bot-bar` replaces floating corner button. CSS class added to brand.py. Each stage wrapper injects `padding-bottom` to prevent content overlap. Stage 1 uses `bottom=76`, Stages 2–3 use `bottom=0`. |
+| 2 | `b0e7f66` | `app.py` | Count hint "N details still needed" (muted, small) at left of bar when disabled. Field-name list removed. |
+| 3 | `53f5ff5` | `app.py`, `src/brand.py` | **Bug fix.** (a) `footer` and `#MainMenu`: `visibility:hidden` → `display:none !important` — removes reserved space, bar now flush to viewport bottom. (b) Removed `_render_fixed_continue()` call from `stage_input()` — chat input no longer blocked on Stage 1. Padding-bottom reduced to 90px. |
+
+### Current Stage 1 UX
+
+- **Disabled state (fields missing):** top disabled "Find a site on the map" button + quick-inputs panel just above chat input. No count hint in bar (no bar on Stage 1).
+- **Enabled state (all 9 fields collected):** top enabled "Find a site on the map →" button + completion-summary panel with a second "Find a site on the map" button just above the chat input.
+- Chat input is **fully usable** — not covered by any fixed element.
+
+### How to verify
+
+Start: `streamlit run app.py --server.port 8505`
+
+1. **Stage 1 — chat input usable:** Click the chat box, type a message. It should accept focus and text normally. No bar visible over the chat input.
+2. **Stage 1 — continue buttons visible:** "Find a site on the map" button visible at top. Once all 9 fields filled, second "Find a site on the map" button appears in completion panel just above chat.
+3. **Stage 2 — bar flush to bottom:** The "Confirm site →" bar sits at the very bottom edge of the browser window with no visible gap below it.
+4. **Stage 3 — bar flush to bottom:** Same check. Scroll to bottom of Review page — content ends above the bar, nothing hidden behind it.
+5. **Stage 2 / 3 disabled state:** Bar shows "N detail(s) still needed" in muted text at left, button grey at right.
+
+### Regression results
+
+12/12 passed after commit `53f5ff5`.
+
+### Engine untouched confirmation
+
+No changes to: placement, scoring, compliance gate, capacity logic, site-search (`src/site_search.py`), or Plotly map facility colours.
+
 **Implementation notes and flags for review:**
 
 1. **Health post (component 1, weight 7):** Scored as distance from health-post centroid to
