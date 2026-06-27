@@ -2,6 +2,72 @@
 
 ---
 
+## HANDOFF — 27 June 2026 (Stage 1 disaster topic — diagnose + fix — 1 commit)
+
+### Session objective
+
+The Stage 1 assistant was still raising natural disasters with users despite a prior fix. Diagnose the cause and fix it. Only `src/conversation.py` (system prompt strings) touched. No engine, layout, or other stage changes.
+
+### Diagnosis
+
+The trigger was in `WHAT YOU MAY DO`, service detail item (1):
+
+```
+(1) cause or reason for the displacement — ask simply and neutrally
+    (e.g. "What brought people to need this camp?"); do NOT name or suggest
+    specific disaster types (flood, drought, earthquake, etc.) as examples,
+```
+
+Two problems in one line:
+1. **Active trigger**: the model is told to ask about displacement cause, which primes it to think about the full space of causes (dominated by disasters in training data).
+2. **Contradiction**: the `do NOT name... (flood, drought, earthquake, etc.)` clause names exactly the words it's supposed to suppress, creating a contradictory instruction. The trigger consistently wins over the prohibition.
+
+The WHAT YOU MUST NOT DO safety-net rule ("NEVER bring up natural disasters...") could not overcome this — it was two paragraphs away and the service-detail loop actively pushed the model toward disaster vocabulary.
+
+### Fix
+
+Removed the displacement-cause question from the active service-detail loop. The `cause` field remains in `EXTRACTION_SYSTEM_PROMPT` and `EXTRACTABLE_FIELDS` — if the user voluntarily mentions the reason for displacement, the extractor still captures it. Added a passive note: "If the user has already mentioned why people are displaced, record it — but do not ask about displacement cause directly."
+
+The MUST NOT DO safety-net rule is retained for user-initiated mentions.
+
+### What changed
+
+| # | Commit | File(s) | Change |
+|---|--------|---------|--------|
+| 1 | `51b767f` | `src/conversation.py` | Removed service-detail item (1) (displacement cause question with disaster examples). Renumbered remaining service items (1)–(3). Added passive note to capture cause if user volunteers it. |
+
+### Why this is more reliable than the previous approach
+
+Previous fix added a prohibition ("NEVER bring up disasters") but left an active contradictory trigger in the same prompt. This fix removes the trigger. No prohibition can reliably suppress an active instruction naming the same vocabulary.
+
+### Remaining risk
+
+The phrase "away from natural hazards" in the site-selection criteria (line 72) is vague — no specific disaster names. Low risk, not changed.
+
+### Regression results
+
+12/12 passed.
+
+### How to test
+
+Start at `http://localhost:8505` (Stage 1). Walk through the conversation:
+1. State a location: e.g. "We're planning a camp near Nairobi."
+2. Give population: e.g. "About 3,000 people — 1,200 men, 1,100 women, 700 children."
+3. Climate: "warm"
+4. Duration: "protracted"
+5. Cultural notes: "none"
+6. Special needs: "none"
+
+At no point in this flow should the assistant mention floods, drought, earthquakes, landslides, cyclones, or any disaster type. After the 6 core fields, it should ask only about water source, power, and sanitation — not about displacement cause.
+
+If you type a cause yourself (e.g. "People fled conflict"), the assistant should acknowledge it briefly and move on — not elaborate or ask disaster follow-ups.
+
+### App state at session end
+
+One clean Streamlit instance on port 8505. Branch `main`.
+
+---
+
 ## HANDOFF — 27 June 2026 (Stage 1 chat-input gap — diagnosis + fix — 1 commit)
 
 ### Session objective
