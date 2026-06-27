@@ -989,7 +989,7 @@ def render_location_stage() -> None:
                 if thumb:
                     st.markdown(
                         f'<img src="data:image/png;base64,{thumb}" '
-                        f'style="width:100%;border-radius:4px;'
+                        f'style="width:100%;border-radius:6px;'
                         f'border:1px solid #E0DACD;display:block;'
                         f'margin-bottom:4px">',
                         unsafe_allow_html=True,
