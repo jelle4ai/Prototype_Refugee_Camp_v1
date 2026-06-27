@@ -1081,7 +1081,11 @@ def render_location_stage() -> None:
                     unsafe_allow_html=True,
                 )
 
-                st.caption(f"Note: {_DISCLAIMER}")
+                st.markdown(
+                    f'<div style="margin-top:10px;font-size:0.72em;'
+                    f'color:#8A8579">Note: {_DISCLAIMER}</div>',
+                    unsafe_allow_html=True,
+                )
 
                 # ── Select site (or too-small badge) ──────────────────────────
                 if fits:
