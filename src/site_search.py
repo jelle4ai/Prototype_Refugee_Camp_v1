@@ -1031,7 +1031,7 @@ def render_location_stage() -> None:
                 st.markdown(
                     f'<div style="border:1px solid #E0DACD;border-radius:6px;'
                     f'overflow:hidden;margin-bottom:0">'
-                    f'<table style="width:100%;font-size:0.8em;border-collapse:collapse">'
+                    f'<table style="width:100%;font-size:0.8em;border-collapse:collapse;margin-bottom:0">'
                     f'<tr>'
                     f'<td style="color:#232323;padding:3px 6px 3px 8px;white-space:nowrap">Area</td>'
                     f'<td style="color:#232323;text-align:right;font-weight:500;padding:3px 8px 3px 4px">'
