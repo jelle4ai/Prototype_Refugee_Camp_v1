@@ -245,13 +245,16 @@ def render_stepper(current_stage: str) -> None:
 
 
 def stage_input():
-    # Stage 1 bottom stacking: continue bar (56px) at bottom, chat input just above it.
-    # Target stChatInput (the actual widget) not stBottom (a tall outer wrapper whose
-    # empty interior was creating the large visual gap). Padding covers bar + input widget.
+    # Stage 1 bottom stacking: bar fixed at bottom:0 (56px tall); stChatInput above it.
+    # stChatInput is NOT a positioned element, so bottom:Xpx has no effect.
+    # The visual gap between the input field and the bar is controlled by stChatInput's
+    # own padding-bottom: gap = padding_bottom - bar_height.
+    # Target: 56 (bar) + 12 (safe gap) = 68px. Zero >div children so they don't stack.
     st.markdown(
         """<style>
-.block-container{padding-bottom:140px!important;}
-[data-testid="stChatInput"]{bottom:68px!important;}
+.block-container{padding-bottom:160px!important;}
+[data-testid="stChatInput"]{padding-bottom:68px!important;}
+[data-testid="stChatInput"]>div{padding-bottom:0!important;margin-bottom:0!important;}
 </style>""",
         unsafe_allow_html=True,
     )
@@ -259,14 +262,20 @@ def stage_input():
     inputs = st.session_state.get("site_inputs", {})
     missing = [_FIELD_LABEL.get(f, f) for f in _STAGE1_REQUIRED if inputs.get(f) is None]
     _render_fixed_continue("Find a site on the map", not missing, missing, "stage1", "location", bottom=0)
-    # JS: adjust chat input position after React renders to survive re-renders.
+    # JS: reinforce padding-bottom after React re-renders (fights Streamlit resetting styles).
     components.html(
         """<script>
 (function(){
   function push(){
     var p=window.parent.document;
     var el=p.querySelector('[data-testid="stChatInput"]');
-    if(el){el.style.setProperty('bottom','68px','important');}
+    if(!el) return;
+    el.style.setProperty('padding-bottom','68px','important');
+    var ch=el.children;
+    for(var i=0;i<ch.length;i++){
+      ch[i].style.setProperty('padding-bottom','0','important');
+      ch[i].style.setProperty('margin-bottom','0','important');
+    }
   }
   setTimeout(push,150);
   setTimeout(push,500);
