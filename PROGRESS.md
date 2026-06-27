@@ -30,7 +30,7 @@ Following the principle of removing the trigger rather than just adding a "don't
 
 | # | Commit | File(s) | Change |
 |---|--------|---------|--------|
-| 1 | *(see below)* | `src/conversation.py` | Three targeted edits to `_CONVERSATION_SYSTEM_PROMPT_BASE`: added hard "no disasters" rule in WHAT YOU MUST NOT DO; made displacement cause question neutral with explicit no-examples instruction; removed flood/earthquake/landslide examples from site criteria |
+| 1 | `091eca1` | `src/conversation.py` | Three targeted edits to `_CONVERSATION_SYSTEM_PROMPT_BASE`: added hard "no disasters" rule in WHAT YOU MUST NOT DO; made displacement cause question neutral with explicit no-examples instruction; removed flood/earthquake/landslide examples from site criteria |
 
 ### Engine untouched confirmation
 
