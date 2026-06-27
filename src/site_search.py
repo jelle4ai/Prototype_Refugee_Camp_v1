@@ -17,6 +17,7 @@ from math import ceil, cos, log2, pi, radians, sin, sqrt
 
 import requests
 import streamlit as st
+import streamlit.components.v1 as components
 import plotly.graph_objects as go
 
 from src.geocoding import geocode_city, metres_to_latlon, latlon_to_metres  # noqa: F401
@@ -990,9 +991,34 @@ def render_location_stage() -> None:
                         f'<img src="data:image/png;base64,{thumb}" '
                         f'style="width:100%;border-radius:4px;'
                         f'border:1px solid #E0DACD;display:block;'
-                        f'margin-bottom:6px">',
+                        f'margin-bottom:4px">',
                         unsafe_allow_html=True,
                     )
+
+                # ── Compact "Show on map" button — sits right under thumbnail ─
+                # Rendered as HTML so it can be shorter than Streamlit's default
+                # button height.  A hidden st.button() (🗺 prefix) acts as the
+                # real Streamlit state trigger; JS below wires the two together.
+                _show_label = "Unzoom" if is_focused else "Show on map"
+                _show_bg    = "#1F4788" if is_focused else "transparent"
+                _show_col   = "#F4F1EA" if is_focused else "#1F4788"
+                _show_bdr   = "none"    if is_focused else "1px solid #E0DACD"
+                st.markdown(
+                    f'<button id="ss2-show-{c["label"]}" '
+                    f'style="width:100%;padding:0.22em 0.8em;font-size:0.8em;'
+                    f'font-weight:500;border-radius:6px;cursor:pointer;'
+                    f'font-family:Inter,sans-serif;background:{_show_bg};'
+                    f'color:{_show_col};border:{_show_bdr};'
+                    f'transition:background-color 0.15s;margin-bottom:6px">'
+                    f'{_show_label}</button>',
+                    unsafe_allow_html=True,
+                )
+                if st.button(
+                    f"\U0001f5fa{c['label']}",
+                    key=f"btn_show_{c['label']}",
+                    type="primary" if is_focused else "secondary",
+                ):
+                    _show_for = c["label"]
 
                 # ── Key facts — 4 fixed rows, aligns cleanly across columns ──
                 fits_badge = (
@@ -1048,15 +1074,7 @@ def render_location_stage() -> None:
 
                 st.caption(f"Note: {_DISCLAIMER}")
 
-                # ── Action buttons ────────────────────────────────────────────
-                if st.button(
-                    "Unzoom" if is_focused else "Show on map",
-                    key=f"btn_show_{c['label']}",
-                    use_container_width=True,
-                    type="primary" if is_focused else "secondary",
-                ):
-                    _show_for = c["label"]
-
+                # ── Select site (or too-small badge) ──────────────────────────
                 if fits:
                     if st.button(
                         "Selected ✓" if is_selected else "Select site",
@@ -1075,6 +1093,43 @@ def render_location_stage() -> None:
                         f'Too small for {pop_display:,} people</div>',
                         unsafe_allow_html=True,
                     )
+
+    # ── JS: hide trigger buttons + wire compact HTML Show-on-map buttons ────────
+    # One iframe total for all cards — same pattern as _render_fixed_continue().
+    _card_labels = [c["label"] for c in candidates]
+    components.html(
+        f"""<script>
+(function(){{
+  var LABELS={_card_labels!r};
+  function setup(){{
+    var p=window.parent.document;
+    /* Hide 🗺-prefixed trigger buttons */
+    p.querySelectorAll('button').forEach(function(b){{
+      var t=(b.innerText||b.textContent||'').trim();
+      if(t.length>=2&&t.codePointAt(0)===0x1F5FA){{
+        var w=b.closest('[data-testid="stButton"]')||b.parentElement;
+        if(w)w.style.cssText='height:0;overflow:hidden;margin:0;padding:0;';
+      }}
+    }});
+    /* Wire each HTML compact button to its hidden trigger */
+    LABELS.forEach(function(label){{
+      var btn=p.getElementById('ss2-show-'+label);
+      if(!btn||btn._wired)return;
+      btn._wired=true;
+      btn.addEventListener('click',function(){{
+        p.querySelectorAll('button').forEach(function(b){{
+          var t=(b.innerText||b.textContent||'').trim();
+          if(t==='\U0001F5FA'+label)b.click();
+        }});
+      }});
+    }});
+  }}
+  setTimeout(setup,120);
+  setTimeout(setup,500);
+}})();
+</script>""",
+        height=0,
+    )
 
     # ── Interaction handlers ───────────────────────────────────────────────────
     if _show_for is not None:
