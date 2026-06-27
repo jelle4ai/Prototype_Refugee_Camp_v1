@@ -307,10 +307,11 @@ _HAMLET_HEADER_HTML = """
     ">Hamlet</div>
     <div style="
       font-family: 'Inter', system-ui, sans-serif;
-      font-size: 0.875rem;
-      color: #8A8579;
-      margin-top: 2px;
-    ">Layouts planned around people</div>
+      font-size: 0.8rem;
+      color: #6B655E;
+      margin-top: 3px;
+      line-height: 1.4;
+    ">Refugee camp generator&nbsp;&nbsp;·&nbsp;&nbsp;<span style="color:#8A8579;font-style:italic;">Layouts planned around people</span></div>
   </div>
 </div>
 """
