@@ -2,6 +2,50 @@
 
 ---
 
+## HANDOFF — 27 June 2026 (Stage 1 conversation logic + 2 layout fixes — 3 commits)
+
+### Session objective
+
+Fix population question ordering and stale UI references in the Stage 1 assistant (the removed quick-input Set button was still referenced). Lower the chat input bar (gap between input and bar). Spread the 4 progress bar stages evenly across full width. Hard boundary: no placement, scoring, compliance gate, capacity, site-search, or map facility colours touched.
+
+### What changed (one commit each)
+
+| # | Commit | File(s) | Change |
+|---|--------|---------|--------|
+| 1 | `bd3ee61` | `src/conversation.py` | Population asked early and captured conversationally. Four linked changes: (a) `EXTRACTABLE_FIELDS` now includes `population`, `men`, `women`, `children`; (b) `_merge_inputs()` writes these fields and derives/caches population from breakdown; (c) `_CONVERSATION_SYSTEM_PROMPT_BASE` reordered question sequence (location → population+breakdown → climate → duration → culture → special needs), removed "NEVER state headcount / use the Men/Women/Children boxes" rule and all references to the removed Set button; (d) `EXTRACTION_SYSTEM_PROMPT` updated to a 13-field JSON schema including integer population/m/w/c fields, with "Do NOT extract headcount" prohibition removed. |
+| 2 | `4979693` | `app.py` | Chat input lowered. The CSS was targeting `[data-testid="stBottom"]` (a ~200px outer wrapper) rather than `[data-testid="stChatInput"]` (the actual widget), causing the container's empty interior to appear as a large gap between the chat input field and the continue bar. Fix: target only `stChatInput`; update JS to match; reduce `padding-bottom` from 160px to 115px (bar 56px + widget ~50px + 9px buffer). |
+| 3 | `8e8a307` | `src/brand.py` | Progress stepper fills full width. Changed `.hs` from `flex-shrink: 0` (shrinks to content width, bunches left) to `flex: 1 1 0 !important; text-align: center !important`. The four stage labels now each take an equal share of the nav row. `.hs-arr` arrows unchanged (`flex-shrink: 0` keeps them narrow). |
+
+### Engine untouched confirmation
+
+No changes to: placement, scoring, compliance gate, capacity logic, site-search (`src/site_search.py`), requirements engine, layout engine, or Plotly map facility colours.
+
+### Regression results
+
+12/12 passed after each commit. All runs ~120s.
+
+### How to test
+
+Start: `streamlit run app.py --server.port 8505`
+
+**Commit 1 — population asked early and captured:**
+- Open Stage 1. After stating your location, the assistant should immediately ask for the number of people (before climate/duration/culture).
+- Type a response like "We need to house 3,000 people — 1,200 men, 1,050 women, and 750 children."
+- Sidebar should update: Population 3,000; Men/Women/Children 1,200 / 1,050 / 750; Required area should appear.
+- The assistant should NOT say anything about "Men/Women/Children boxes" or "Set button" — those were removed.
+
+**Commit 2 — chat input closer to bar:**
+- On Stage 1, scroll to the bottom. The chat input should sit just above the continue bar with minimal gap between them (much less than before).
+
+**Commit 3 — full-width progress bar:**
+- Load any stage. The 4 step chips should spread evenly across the full nav width — not bunched to the left with empty space on the right. Arrow separators remain narrow.
+
+### App state at session end
+
+One clean Streamlit instance on port 8505. Branch `main`.
+
+---
+
 ## HANDOFF — 27 June 2026 (Navigation frame — 3 commits)
 
 ### Session objective
