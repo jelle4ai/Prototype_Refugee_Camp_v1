@@ -13,11 +13,11 @@ REQUIRED_FIELDS = [
 # Collected through chat; do not gate the handoff.
 SERVICE_FIELDS = ["cause", "water_source", "power_source", "sanitation"]
 
-# The extraction call may ONLY write these fields.
-# population / men / women / children are intentionally excluded:
-# they can only be set via the quick-input Set button.
+# The extraction call may write all of these fields.
+# population/men/women/children are now collected conversationally.
 EXTRACTABLE_FIELDS = [
-    "city", "climate", "duration", "cultural_notes", "special_needs",
+    "city", "population", "men", "women", "children",
+    "climate", "duration", "cultural_notes", "special_needs",
     "cause", "water_source", "power_source", "sanitation",
 ]
 
@@ -35,11 +35,8 @@ WHAT YOU MUST NOT DO:
 - If the user asks for a layout or facility list, say: "The tool will generate a \
   scored layout on the map once the site is confirmed — let's finish gathering \
   the basics first." Then ask for the next missing input.
-- NEVER state, announce, guess, or repeat any headcount figure (population total, \
-  or the men / women / children split). If headcount comes up, say: \
-  "Please enter the numbers using the Men / Women / Children boxes in the panel \
-  above the chat, then click Set — I'll pick them up automatically." \
-  Do not invent or confirm a figure yourself.
+- Never invent, infer, or assume headcount values (population total, or the \
+  men / women / children split). Ask for them and wait for the user to provide them.
 - NEVER bring up, suggest, or volunteer natural disasters (floods, earthquakes, \
   drought, landslides, cyclones, or any similar event) as topics or examples. \
   If the user mentions a disaster themselves, acknowledge it in one sentence and \
@@ -47,12 +44,21 @@ WHAT YOU MUST NOT DO:
   about the disaster, or use disaster examples to prompt the user.
 
 WHAT YOU MAY DO:
-- Gather the required inputs (city, climate, duration, cultural notes, special needs), \
-  one question at a time.
-- Once population is shown in the sidebar as set, state the approximate land needed \
-  exactly once: e.g. "For 2,000 people you will need roughly 9 hectares, about \
-  335 × 335 metres." (Formula: total area = population × 45 m²; suggested side = \
-  √(total area × 1.25).) Do this exactly once — do not repeat it every turn.
+- Gather the required inputs in this order, one question at a time: \
+  (1) city / location, \
+  (2) total number of people the camp must accommodate — ask immediately after \
+      location; if the user gives a total, follow up for the breakdown \
+      (men, women, children separately) unless already provided; BOTH the total \
+      and the breakdown are required, \
+  (3) climate: warm or cold, \
+  (4) duration: emergency (weeks to months) or protracted (years), \
+  (5) cultural notes relevant to planning (accept "none"), \
+  (6) special needs such as accessibility or medical requirements (accept "none").
+- Once population and the breakdown (men / women / children) are confirmed, state \
+  the approximate land needed exactly once: e.g. "For 2,000 people you will need \
+  roughly 9 hectares, about 335 × 335 metres." (Formula: total area = population \
+  × 45 m²; suggested side = √(total area × 1.25).) Do this exactly once — do not \
+  repeat it every turn.
 - After the core fields are covered, ask about each of the following service details \
   once each, one at a time. These are optional — if the user says they do not know, \
   accept that and move on: \
@@ -82,11 +88,15 @@ EXTRACTION_SYSTEM_PROMPT = """\
 You are a structured data extraction assistant. Read the conversation provided and \
 extract planning information about a refugee camp.
 
-Return ONLY a valid JSON object with exactly these nine fields — no prose, no \
+Return ONLY a valid JSON object with exactly these thirteen fields — no prose, no \
 explanation, no markdown, no code fences, just the raw JSON:
 
 {
   "city": <string or null>,
+  "population": <integer or null>,
+  "men": <integer or null>,
+  "women": <integer or null>,
+  "children": <integer or null>,
   "climate": <"warm" or "cold" or null>,
   "duration": <"emergency" or "protracted" or null>,
   "cultural_notes": <string, "None specified", or null>,
@@ -102,15 +112,17 @@ Extraction rules:
   recent message. Include values the user mentioned in any earlier message.
 - Extract ONLY values the user has explicitly stated. Never infer or guess.
 - Use null for any field not yet mentioned by the user in any message.
+- population: integer total count if the user states one. If the user gives only \
+  a breakdown (men + women + children), leave population null — it will be derived.
+- men, women, children: integer counts if the user states them. Strip punctuation \
+  (commas, spaces) and convert word-form numbers to integers.
 - cultural_notes and special_needs: if the user explicitly says there are none \
   (e.g. "none", "no", "n/a", "nothing", "not applicable", "none that I know of", \
   "no special needs", "no cultural notes"), return the string "None specified" — \
   this is a real answer. null means the topic was never mentioned at all.
 - If the user corrects a field they gave earlier, use the newer value.
 - climate: "warm" for hot/arid/tropical; "cold" for cold/temperate/mountain/arctic.
-- duration: "emergency" for acute/short-term; "protracted" for long-term/ongoing.
-- Do NOT extract headcount figures. population, men, women, and children are \
-  entered only via the UI panel and must never appear in this JSON.\
+- duration: "emergency" for acute/short-term; "protracted" for long-term/ongoing.\
 """
 
 _OPENING_MESSAGE = (
@@ -161,8 +173,8 @@ def _extract_inputs(chat_history: list) -> dict | None:
 
 
 def _merge_inputs(extracted: dict | None) -> None:
-    """Write extracted values into session state, but ONLY for EXTRACTABLE_FIELDS.
-    population / men / women / children are never written here."""
+    """Write extracted values into session state for EXTRACTABLE_FIELDS.
+    Population/men/women/children are now collected conversationally and included."""
     if not extracted or not isinstance(extracted, dict):
         return
     inputs = st.session_state["site_inputs"]
@@ -170,6 +182,13 @@ def _merge_inputs(extracted: dict | None) -> None:
         value = extracted.get(field)
         if value is not None:
             inputs[field] = value
+    # Derive population from breakdown and update area estimate.
+    m, w, c = inputs.get("men"), inputs.get("women"), inputs.get("children")
+    if m is not None and w is not None and c is not None:
+        inputs["population"] = m + w + c
+        _update_area(inputs, m + w + c)
+    elif inputs.get("population"):
+        _update_area(inputs, inputs["population"])
 
 
 def _all_collected() -> bool:
@@ -354,8 +373,7 @@ def render_input_stage() -> None:
 
     inputs = st.session_state["site_inputs"]
 
-    # Recompute population from committed components each render (Set button is
-    # the only source; this just keeps the derived total in sync).
+    # Recompute population from breakdown each render to keep the derived total in sync.
     m, w, c = inputs.get("men"), inputs.get("women"), inputs.get("children")
     if m is not None and w is not None and c is not None:
         inputs["population"] = m + w + c
