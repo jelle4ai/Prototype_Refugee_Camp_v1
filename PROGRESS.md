@@ -2,6 +2,53 @@
 
 ---
 
+## HANDOFF — 27 June 2026 (Stage 2 card refinements — 3 commits)
+
+### Session objective
+
+Polish the candidate comparison cards: facts-table styling (rounding, padding, dark text), move "Show on map" below the thumbnail as a compact button, and align pros/cons/button rows across all cards. Presentation only — no engine, capacity, fits, or site-search logic changed.
+
+### What changed
+
+| # | Commit | File(s) | Change |
+|---|--------|---------|--------|
+| 1 | `1dfe781` | `src/site_search.py` | Facts table: wrapped in `overflow:hidden` div with `border-radius:4px;border:1px solid #E0DACD` to match the thumbnail's rounding exactly. Changed label colour from muted grey (`#8A8579`) to brand ink (`#232323`). Added 8px left padding on label cells; 8px right padding on value cells. |
+| 2 | `56fe1ed` | `src/site_search.py` | "Show on map" moved from bottom of card to directly below the thumbnail. Rendered as a compact HTML button (padding 0.22em vs Streamlit's 0.45rem, font-size 0.8em). One `components.html()` after the card loop wires all cards' HTML buttons to hidden Streamlit trigger buttons (🗺{label} prefix, same pattern as fixed bottom bar). "Select site" stays at the card bottom. |
+| 3 | `41590bd` | `src/site_search.py` | Pros and Cons each rendered as a single HTML div block with unique IDs (`ss2-pros-{label}`, `ss2-cons-{label}`). Extended the post-loop JS to measure `offsetHeight` of each section and set `min-height` to the tallest, so columns align regardless of text wrapping. Runs at 120ms and 500ms post-render. |
+
+### Hard-boundary confirmation
+
+- Placement, scoring, compliance, capacity-estimate logic: **untouched**
+- Fits/too-small determination: **untouched**
+- Site-search logic: **untouched**
+- Map facility colours: **untouched**
+
+### Alignment notes (Commit 3)
+
+The JS equalization approach handles text wrapping correctly (it measures actual rendered heights, not item counts). Cards with shorter text will have empty space at the bottom of their Pros/Cons sections so that longer cards' content aligns. The gap is proportional to the content difference — typically 0–2 line heights, which looks clean. Very long pros/cons on one card (rare) could leave a noticeable gap in shorter cards; the alternative (no equalization) would leave headings and buttons at different heights, which is worse.
+
+### Regression results
+
+All three commits: 12/12 passed.
+
+### How to test
+
+Start at `http://localhost:8505`, run a search (e.g. Enschede, pop=1100):
+
+**Facts table (Commit 1):** Each card's facts table has rounded corners matching the thumbnail above it. Label text ("Area", "Distance", etc.) is dark ink, not grey. Labels have clear left padding — text does not touch the card edge.
+
+**Show on map (Commit 2):** The compact "Show on map" button sits directly below the thumbnail (smaller height/text than a standard Streamlit button). Clicking it zooms the overview map to that site and changes the button to "Unzoom". Clicking "Unzoom" returns the map to showing all sites.
+
+**Alignment (Commit 3):** In a 5-card (or 3-card) row, the "Pros" heading aligns across all cards; the "Cons" heading aligns across all cards; and the "Select site" button is at roughly the same height in all cards. Cards with less content have slight empty space below pros/cons to fill to the tallest card's height.
+
+**Full flow:** Click "Select site" on a fitting card → spinner → lands in Stage 3 → generate layout works normally.
+
+### App state at session end
+
+One clean Streamlit instance on port 8505. Branch `main`.
+
+---
+
 ## HANDOFF — 27 June 2026 (Stage 2 candidate list redesign — 3 commits)
 
 ### Session objective
