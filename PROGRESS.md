@@ -2,6 +2,61 @@
 
 ---
 
+## HANDOFF — 27 June 2026 (Stage 2 card fixes — 3 commits)
+
+### Session objective
+
+Fix the persisting empty strip below the facts table (real cause now diagnosed), unify all three element corner radii, and make "Select site" always a primary button. Presentation only — no logic touched.
+
+### Root cause: the empty table row
+
+The "extra row" was NOT an extra `<tr>` element. Streamlit's markdown container styled-component injects this CSS for every `<table>` inside `st.markdown()`:
+```
+table { display:'table'; borderCollapse:'collapse'; marginBottom: spacing.lg }
+```
+`spacing.lg = 1rem (16px)`. Because `overflow:hidden` on the wrapper div creates a block formatting context, the `<table>` element's `margin-bottom` is included in the div's height — creating a 16px empty strip below the last row that looks like a blank table row.
+
+Previous fix set `margin-bottom:0` on the *wrapper div* (wrong element). Real fix: `margin-bottom:0` on the `<table>` element's inline style, which overrides the styled-component rule.
+
+### Primary button CSS check
+
+No `stBaseButton-primary` selector is needed in `brand.py`. The catch-all `.stButton > button { background-color:#1F4788 !important }` correctly styles all primary buttons as indigo. No selector mismatch for primary (the mismatch only affected secondary buttons, fixed in commit `7c38ab1`).
+
+### What changed
+
+| # | Commit | File | Change |
+|---|--------|------|--------|
+| 1 | `183c620` | `src/site_search.py` | Added `margin-bottom:0` to the `<table>` inline style. This overrides Streamlit's `table { marginBottom:spacing.lg }` markdown-container rule and removes the empty strip below the Fits row. |
+| 2 | `b1b6691` | `src/site_search.py` | Thumbnail `border-radius:4px → 6px`. Now all three elements match: thumbnail (6px), facts table wrapper (6px), Show-on-map button (6px). |
+| 3 | `32453ee` | `src/site_search.py` | "Select site" button: `type="primary" if is_selected else "secondary"` → `type="primary"` always. After the secondary CSS fix, secondary renders ghost/bone — Select site needs to stand out as the card's main action so it must always be indigo primary. |
+
+### Hard-boundary confirmation
+
+- Placement, scoring, compliance, capacity-estimate logic: **untouched**
+- Fits/too-small determination: **untouched**
+- Site-search logic: **untouched**
+- Map facility colours: **untouched**
+
+### Regression results
+
+All three commits: 12/12 passed.
+
+### How to verify
+
+Hard-reload **http://localhost:8505** (Ctrl+Shift+R), run Enschede search pop=1100:
+
+**Empty row (Commit 1):** The facts table ends cleanly at the "Fits" row. No visible strip/gap between the Fits row and the table's bottom border. The bottom border of the wrapper div sits flush against the Fits row content.
+
+**Radius matching (Commit 2):** Thumbnail, table wrapper, and Show-on-map button all have identical 6px corners. The card's top section (thumbnail → button → table) looks like a unified visual group.
+
+**Select site primary (Commit 3):** Each fitting card's "Select site" button is filled indigo — clearly the main action. "Show on map" (ghost/bone) recedes. Once clicked, "Selected ✓" is also indigo primary. Clicking it routes through to Stage 3 normally.
+
+### App state at session end
+
+One clean Streamlit instance on port 8505. Branch `main`.
+
+---
+
 ## HANDOFF — 27 June 2026 (Brand CSS secondary button selector fix)
 
 ### Session objective
