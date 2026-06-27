@@ -90,37 +90,73 @@ def _navigate_to(target_stage: str) -> None:
 
 
 def render_stepper(current_stage: str) -> None:
-    """Horizontal step progress bar with clickable back-navigation on completed steps."""
+    """Sticky progress bar. Completed steps show green ✓ and are clickable (back-nav)."""
     labels = ["Information gathering", "Site selection", "Review and confirm", "Layout result"]
     current_idx = STAGES.index(current_stage)
-    cols = st.columns(4)
-    for i, (col, label) in enumerate(zip(cols, labels)):
-        stage_key = STAGES[i]
+
+    # ── Visual HTML sticky bar ─────────────────────────────────────────────────
+    parts = []
+    for i, label in enumerate(labels):
         num = i + 1
-        with col:
-            if i < current_idx:
-                if st.button(
-                    f"✓ {num}. {label}",
-                    key=f"stepper_{stage_key}",
-                    use_container_width=True,
-                    type="secondary",
-                    help=f"Return to {label}",
-                ):
-                    _navigate_to(stage_key)
-            elif i == current_idx:
-                st.markdown(
-                    f"<div style='text-align:center;padding:6px 4px;color:#1F4788;"
-                    f"font-weight:600;font-size:0.875rem;font-family:Inter,sans-serif;"
-                    f"border-bottom:2px solid #1F4788;'>{num}. {label}</div>",
-                    unsafe_allow_html=True,
-                )
-            else:
-                st.markdown(
-                    f"<div style='text-align:center;padding:6px 4px;color:#8A8579;"
-                    f"font-size:0.875rem;font-family:Inter,sans-serif;'>"
-                    f"{num}. {label}</div>",
-                    unsafe_allow_html=True,
-                )
+        sk = STAGES[i]
+        if i < current_idx:
+            parts.append(
+                f'<button class="hs hs-done" data-hs-nav="{sk}" '
+                f'aria-label="Return to {label}">'
+                f'<span class="hs-tick">✓</span> {num}. {label}</button>'
+            )
+        elif i == current_idx:
+            parts.append(
+                f'<div class="hs hs-cur" aria-current="step">{num}. {label}</div>'
+            )
+        else:
+            parts.append(f'<div class="hs hs-fut">{num}. {label}</div>')
+        if i < 3:
+            parts.append('<span class="hs-arr" aria-hidden="true">›</span>')
+
+    st.markdown(
+        '<nav class="hstep" aria-label="Progress">' + "".join(parts) + "</nav>",
+        unsafe_allow_html=True,
+    )
+
+    # ── Hidden Streamlit back-nav triggers (⬅ prefix makes them uniquely findable by JS) ─
+    for i in range(current_idx):
+        if st.button(f"⬅{STAGES[i]}", key=f"hn_{STAGES[i]}", type="secondary"):
+            _navigate_to(STAGES[i])
+
+    # ── JS: hide trigger buttons + wire HTML bar clicks → trigger buttons ──────
+    if current_idx > 0:
+        components.html(
+            """<script>
+(function () {
+  function setup () {
+    var p = window.parent.document;
+    /* hide Streamlit back-nav triggers identified by unique ⬅ prefix */
+    p.querySelectorAll('button').forEach(function (b) {
+      var t = (b.innerText || b.textContent || '').trim();
+      if (t.length > 1 && t.charCodeAt(0) === 0x2B05) {
+        var w = b.closest('[data-testid="stButton"]') || b.parentElement;
+        if (w) w.style.cssText = 'height:0;overflow:hidden;margin:0;padding:0;';
+      }
+    });
+    /* wire HTML bar completed-step clicks → hidden Streamlit trigger buttons */
+    p.querySelectorAll('[data-hs-nav]').forEach(function (el) {
+      if (el._hs) return;
+      el._hs = true;
+      el.addEventListener('click', function () {
+        var nav = this.getAttribute('data-hs-nav');
+        p.querySelectorAll('button').forEach(function (b) {
+          var t = (b.innerText || b.textContent || '').trim();
+          if (t === '⬅' + nav) b.click();
+        });
+      });
+    });
+  }
+  setTimeout(setup, 120);
+})();
+</script>""",
+            height=0,
+        )
 
 
 def stage_input():
@@ -809,7 +845,6 @@ def main():
 
     render_brand_header()
     render_stepper(current_stage)
-    st.divider()
 
     STAGE_HANDLERS[current_stage]()
 

@@ -184,6 +184,57 @@ div[data-testid="stExpander"] {
     color: #F4F1EA !important;
 }
 
+/* ── Progress stepper bar ──────────────────────────────────────────────────── */
+nav.hstep {
+    position: sticky !important;
+    top: 2.875rem !important;
+    z-index: 300 !important;
+    background: #EFEBE0 !important;
+    border-bottom: 1px solid #E0DACD !important;
+    display: flex !important;
+    align-items: center !important;
+    flex-wrap: nowrap !important;
+    gap: 0 !important;
+    padding: 7px 0 9px !important;
+    margin-bottom: 4px !important;
+}
+.hs {
+    font-family: 'Inter', system-ui, sans-serif !important;
+    font-size: 0.8rem !important;
+    line-height: 1 !important;
+    padding: 5px 11px !important;
+    border-radius: 4px !important;
+    white-space: nowrap !important;
+    flex-shrink: 0 !important;
+}
+.hs-done {
+    background: transparent !important;
+    color: #2e7d32 !important;
+    border: 1px solid #a5d6a7 !important;
+    cursor: pointer !important;
+    font-weight: 500 !important;
+    transition: background 0.12s ease !important;
+}
+.hs-done:hover { background: #e8f5e9 !important; }
+.hs-tick { font-weight: 700 !important; }
+.hs-cur {
+    background: #1F4788 !important;
+    color: #F4F1EA !important;
+    border: none !important;
+    font-weight: 600 !important;
+}
+.hs-fut {
+    background: transparent !important;
+    color: #B0A898 !important;
+    border: none !important;
+}
+.hs-arr {
+    color: #C8C0B0 !important;
+    font-size: 1rem !important;
+    padding: 0 5px !important;
+    flex-shrink: 0 !important;
+}
+
 /* Secondary buttons — ghost/outlined style for stepper back-nav and unselected toggles.
    Must come after the general .stButton rule so the !important overrides it. */
 button[data-testid="baseButton-secondary"] {
