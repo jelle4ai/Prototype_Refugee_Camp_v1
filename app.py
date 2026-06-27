@@ -252,6 +252,8 @@ def stage_input():
         """<style>
 .block-container{padding-bottom:115px!important;}
 [data-testid="stChatInput"]{bottom:56px!important;}
+[data-testid="stChatInput"],[data-testid="stChatInput"]>div{
+    padding-bottom:0!important;margin-bottom:0!important;}
 </style>""",
         unsafe_allow_html=True,
     )
