@@ -1093,7 +1093,7 @@ def render_location_stage() -> None:
                         "Selected ✓" if is_selected else "Select site",
                         key=f"btn_sel_{c['label']}",
                         use_container_width=True,
-                        type="primary" if is_selected else "secondary",
+                        type="primary",
                     ):
                         if not is_selected:
                             _sel_for = c["label"]
