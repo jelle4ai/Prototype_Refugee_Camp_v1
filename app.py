@@ -245,14 +245,13 @@ def render_stepper(current_stage: str) -> None:
 
 
 def stage_input():
-    # Stage 1 bottom stacking (bottom → top): continue bar → chat input → content.
-    # CSS pushes Streamlit's chat input up by 56px (bar height); JS repeats after React
-    # re-renders. Content padding clears both fixed elements combined (~132px) + buffer.
+    # Stage 1 bottom stacking: continue bar (56px) at bottom, chat input just above it.
+    # Target stChatInput (the actual widget) not stBottom (a tall outer wrapper whose
+    # empty interior was creating the large visual gap). Padding covers bar + input widget.
     st.markdown(
         """<style>
-.block-container{padding-bottom:160px!important;}
+.block-container{padding-bottom:115px!important;}
 [data-testid="stChatInput"]{bottom:56px!important;}
-[data-testid="stBottom"]{bottom:56px!important;}
 </style>""",
         unsafe_allow_html=True,
     )
@@ -260,18 +259,14 @@ def stage_input():
     inputs = st.session_state.get("site_inputs", {})
     missing = [_FIELD_LABEL.get(f, f) for f in _STAGE1_REQUIRED if inputs.get(f) is None]
     _render_fixed_continue("Find a site on the map", not missing, missing, "stage1", "location", bottom=0)
-    # Belt-and-suspenders: JS adjusts chat input after React finishes rendering.
+    # JS: adjust chat input position after React renders to survive re-renders.
     components.html(
         """<script>
 (function(){
   function push(){
     var p=window.parent.document;
-    var targets=['[data-testid="stChatInput"]','[data-testid="stBottom"]',
-                 'div[class*="stChatInput"]'];
-    for(var i=0;i<targets.length;i++){
-      var el=p.querySelector(targets[i]);
-      if(el){el.style.setProperty('bottom','56px','important');return;}
-    }
+    var el=p.querySelector('[data-testid="stChatInput"]');
+    if(el){el.style.setProperty('bottom','56px','important');}
   }
   setTimeout(push,150);
   setTimeout(push,500);
