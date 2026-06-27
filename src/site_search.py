@@ -899,76 +899,138 @@ def render_location_stage() -> None:
         use_container_width=True,
     )
 
-    # ── Candidate cards ───────────────────────────────────────────────────────
-    for c in candidates:
+    # ── Candidate comparison columns (up to 5 side-by-side) ─────────────────
+    n_cands   = len(candidates)
+    comp_cols = st.columns(n_cands, gap="small")
+    _show_for: str | None = None
+    _sel_for:  str | None = None
+
+    for i, c in enumerate(candidates):
         is_selected = (st.session_state["ss2_selected"] == c["label"])
         is_focused  = (st.session_state.get("ss2_focused") == c["label"])
         fits        = c.get("fits_population", True)
+        pros, cons  = _pros_cons(c)
+        line_col, _ = _PALETTE[i % len(_PALETTE)]
+        est_cap     = c.get("est_capacity_pp", 0)
+        dist_km     = c["city_dist_m"] / 1_000
 
-        with st.container(border=True):
-            h_col, show_col, sel_col = st.columns([3, 1.5, 1.5])
-            h_col.markdown(
-                f"**Site {c['label']}** · {c['land_label']} · "
-                f"{c['area_ha']:.1f} ha · "
-                f"{c['city_dist_m'] / 1_000:.1f} km from city centre"
-            )
-
-            show_clicked = show_col.button(
-                "Unzoom" if is_focused else "Show on map",
-                key=f"btn_show_{c['label']}",
-                use_container_width=True,
-                type="primary" if is_focused else "secondary",
-            )
-
-            if fits:
-                select_clicked = sel_col.button(
-                    "Selected ✓" if is_selected else "Select site",
-                    key=f"btn_sel_{c['label']}",
-                    use_container_width=True,
-                    type="primary" if is_selected else "secondary",
+        with comp_cols[i]:
+            with st.container(border=True):
+                # ── Card header ───────────────────────────────────────────────
+                selected_badge = (
+                    ' <span style="background:#1F4788;color:#F4F1EA;'
+                    'font-size:0.72em;padding:2px 6px;border-radius:3px'
+                    '">selected</span>'
+                    if is_selected else ""
                 )
-            else:
-                sel_col.markdown(
-                    f"<div style='color:#b71c1c;font-size:0.82em;text-align:center;"
-                    f"padding:0.55em 0.3em;line-height:1.3'>"
-                    f"Too small<br/>for {pop_display:,} people</div>",
+                st.markdown(
+                    f'<div style="font-weight:700;font-size:1.05em;color:{line_col}">'
+                    f'Site {c["label"]}{selected_badge}</div>'
+                    f'<div style="font-size:0.78em;color:#8A8579;margin-bottom:6px">'
+                    f'{c["land_label"]}</div>',
                     unsafe_allow_html=True,
                 )
-                select_clicked = False
 
-            pros, cons = _pros_cons(c)
-            p_col, n_col = st.columns(2)
-            with p_col:
+                # ── Key facts — 4 fixed rows, aligns cleanly across columns ──
+                fits_badge = (
+                    '<span style="color:#2e7d32;font-weight:600">✓ Fits</span>'
+                    if fits else
+                    '<span style="color:#b71c1c;font-weight:600">✗ Too small</span>'
+                )
+                st.markdown(
+                    f'<table style="width:100%;font-size:0.8em;'
+                    f'border-collapse:collapse;margin-bottom:6px">'
+                    f'<tr><td style="color:#8A8579;padding:2px 4px 2px 0;'
+                    f'white-space:nowrap">Area</td>'
+                    f'<td style="text-align:right;font-weight:500">'
+                    f'{c["area_ha"]:.1f} ha</td></tr>'
+                    f'<tr><td style="color:#8A8579;padding:2px 4px 2px 0;'
+                    f'white-space:nowrap">Distance</td>'
+                    f'<td style="text-align:right;font-weight:500">'
+                    f'{dist_km:.1f} km</td></tr>'
+                    f'<tr><td style="color:#8A8579;padding:2px 4px 2px 0;'
+                    f'white-space:nowrap">Est. capacity</td>'
+                    f'<td style="text-align:right;font-weight:500">'
+                    f'~{est_cap:,} pp</td></tr>'
+                    f'<tr><td style="color:#8A8579;padding:2px 4px 2px 0;'
+                    f'white-space:nowrap">Fits</td>'
+                    f'<td style="text-align:right">{fits_badge}</td></tr>'
+                    f'</table>',
+                    unsafe_allow_html=True,
+                )
+
+                st.divider()
+
+                # ── Pros ──────────────────────────────────────────────────────
                 if pros:
                     st.markdown("**Pros**")
                     for pro in pros:
-                        st.markdown(f"+ {pro}")
-            with n_col:
+                        st.markdown(
+                            f'<div style="font-size:0.8em;margin:1px 0">'
+                            f'+ {pro}</div>',
+                            unsafe_allow_html=True,
+                        )
+                # ── Cons ──────────────────────────────────────────────────────
                 if cons:
                     st.markdown("**Cons**")
                     for con in cons:
-                        st.markdown(f"- {con}")
+                        st.markdown(
+                            f'<div style="font-size:0.8em;margin:1px 0">'
+                            f'− {con}</div>',
+                            unsafe_allow_html=True,
+                        )
 
-            st.caption(f"Note: {_DISCLAIMER}")
+                st.caption(f"Note: {_DISCLAIMER}")
 
-        if show_clicked:
-            st.session_state["ss2_focused"] = None if is_focused else c["label"]
-            st.rerun()
+                # ── Action buttons ────────────────────────────────────────────
+                if st.button(
+                    "Unzoom" if is_focused else "Show on map",
+                    key=f"btn_show_{c['label']}",
+                    use_container_width=True,
+                    type="primary" if is_focused else "secondary",
+                ):
+                    _show_for = c["label"]
 
-        if select_clicked and not is_selected and fits:
-            # Seed from the per-parcel cache rather than blanking to [] --
-            # if this parcel's roads were already fetched successfully earlier
-            # this session, a fresh fetch that then fails (e.g. a transient
-            # Overpass 504) must not destroy that data. See the fetch block
-            # below, which only overwrites on a successful result.
-            cached = st.session_state["ss2_roads_cache"].get(c["label"], [])
-            st.session_state.update({
-                "ss2_selected":    c["label"],
-                "ss2_roads_done":  False,
-                "ss2_roads_m":     cached,
-                "ss2_roads_error": "",
-            })
-            st.rerun()
+                if fits:
+                    if st.button(
+                        "Selected ✓" if is_selected else "Select site",
+                        key=f"btn_sel_{c['label']}",
+                        use_container_width=True,
+                        type="primary" if is_selected else "secondary",
+                    ):
+                        if not is_selected:
+                            _sel_for = c["label"]
+                else:
+                    st.markdown(
+                        f'<div style="color:#b71c1c;font-size:0.82em;'
+                        f'text-align:center;padding:0.5em;'
+                        f'border:1px solid #ffcdd2;border-radius:6px;'
+                        f'background:#fff5f5;margin-top:4px">'
+                        f'Too small for {pop_display:,} people</div>',
+                        unsafe_allow_html=True,
+                    )
+
+    # ── Interaction handlers ───────────────────────────────────────────────────
+    if _show_for is not None:
+        st.session_state["ss2_focused"] = (
+            None if st.session_state.get("ss2_focused") == _show_for else _show_for
+        )
+        st.rerun()
+
+    if _sel_for is not None:
+        # Seed from the per-parcel cache rather than blanking to [] --
+        # if this parcel's roads were already fetched successfully earlier
+        # this session, a fresh fetch that then fails (e.g. a transient
+        # Overpass 504) must not destroy that data. See the fetch block
+        # below, which only overwrites on a successful result.
+        cached = st.session_state["ss2_roads_cache"].get(_sel_for, [])
+        st.session_state.update({
+            "ss2_selected":    _sel_for,
+            "ss2_roads_done":  False,
+            "ss2_roads_m":     cached,
+            "ss2_roads_error": "",
+        })
+        st.rerun()
 
     # ── Selected parcel detail ────────────────────────────────────────────────
     sel_label = st.session_state["ss2_selected"]
