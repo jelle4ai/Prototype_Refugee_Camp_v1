@@ -264,6 +264,14 @@ button[data-testid="baseButton-secondary"]:hover {
     border-color: #1F4788 !important;
 }
 
+/* User chat message bubble — Bone surface so it sits naturally on the page background */
+[data-testid="stChatMessage"][aria-label*="user" i],
+[data-testid="stChatMessage"].stChatMessage-user {
+    background-color: #F4F1EA !important;
+    border: 1px solid #E0DACD !important;
+    border-radius: 12px !important;
+}
+
 /* Main content block padding — clears the now-visible transparent header (~2.875rem) */
 .block-container {
     padding-top: 3.5rem !important;
