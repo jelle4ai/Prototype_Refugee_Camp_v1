@@ -91,12 +91,20 @@ def _render_fixed_continue(
     btn_cursor = "pointer" if enabled else "not-allowed"
     arrow = " →" if enabled else ""
 
+    count = len(missing)
+    hint_html = (
+        f'<span style="font-size:0.78rem;color:#8A8579;font-family:Inter,sans-serif;">'
+        f'{count} detail{"s" if count != 1 else ""} still needed</span>'
+        if missing else ""
+    )
+
     st.markdown(
         f'<div class="hamlet-bot-bar" style="bottom:{bottom}px;">'
+        f'{hint_html}'
         f'<button id="hfc-{btn_key}"'
         f' style="background:{btn_color};color:#F4F1EA;border:none;border-radius:8px;'
         f'font-family:Inter,sans-serif;font-weight:500;font-size:0.9rem;'
-        f'padding:0.55rem 1.4rem;cursor:{btn_cursor};">'
+        f'padding:0.55rem 1.4rem;cursor:{btn_cursor};margin-left:auto;">'
         f'{label}{arrow}</button>'
         f'</div>',
         unsafe_allow_html=True,
