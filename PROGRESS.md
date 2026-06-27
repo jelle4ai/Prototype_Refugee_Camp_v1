@@ -2,6 +2,68 @@
 
 ---
 
+## HANDOFF — 27 June 2026 (Stage 2 candidate list redesign — 3 commits)
+
+### Session objective
+
+Rebuild the Stage 2 site-selection candidate list as a side-by-side comparison layout with static map thumbnails per card, and remove the redundant site-confirmation step. Presentation only — engine, capacity, fits/too-small, site-search, scoring, compliance, and map facility colours untouched.
+
+### What changed
+
+| # | Commit | File(s) | Change |
+|---|--------|---------|--------|
+| 1 | `e4db4e2` | `src/site_search.py` | Replaced vertical card loop with `st.columns()` comparison grid. Key facts (area, distance, capacity, fits) rendered as a fixed 4-row HTML table so they align cleanly across all columns. Pros/cons and action buttons remain per card. Interaction handlers (`_show_for`, `_sel_for`) moved outside the column loop so button events are handled cleanly after full render. |
+| 2 | `110486f` | `src/site_search.py` | Added `_parcel_thumbnail_b64()` — draws the parcel polygon outline as a 200×130 px PNG using PIL (already a project dependency). Each card now shows a colour-coded shape thumbnail above the facts table. ~4 ms/card, ~21 ms for 5 cards total; negligible page-load impact. |
+| 3 | `15160b7` | `src/site_search.py`, `app.py` | Clicking "Select site" now fetches roads, builds the site dict, and advances directly to Stage 3 with no intermediate confirm step. Stage 3 (Review and confirm) is the single confirmation point. The fixed bottom bar in Stage 2 remains for the back-navigation case (user returns from Stage 3). Removed the redundant top "Confirm site →" button from `stage_location()` in app.py. Site dict structure unchanged. |
+
+### Hard-boundary confirmation
+
+- Placement, scoring, compliance, capacity-estimate logic: **untouched**
+- Fits/too-small determination: **untouched**
+- Site-search logic (`find_candidates`, `_estimate_capacity`, overpass queries): **untouched**
+- Map facility colours: **untouched**
+- Selected-site data (`st.session_state["site"]`) structure: **identical** — same keys, same origin_lat/lon/parcel_polygon_m/roads_m/roads_fetch_error
+
+### Thumbnail performance
+
+PIL renders 5 thumbnails (200×130 px each, ~30-vertex polygons) in **~21 ms total** (~4 ms each). No network requests; no new dependencies.
+
+### Regression results
+
+All three commits: 12/12 passed.
+
+### How to test
+
+Start at `http://localhost:8505`.
+
+**Comparison layout (Commit 1):**
+- Go to Stage 2, enter Enschede, Netherlands, pop=1100, search with default radius
+- Candidate cards should appear side-by-side (up to 5 columns). Key facts (area, distance, capacity, fits) are in the same vertical positions across all cards. Much less vertical scrolling than before.
+
+**Thumbnails (Commit 2):**
+- Each card shows a coloured polygon outline thumbnail above the facts table
+- All thumbnails are consistent size and load with the page (no extra spinner)
+
+**Show on map (Commit 1/2):**
+- Click "Show on map" on a card → the overview map above zooms to that site and the button changes to "Unzoom"
+- Click "Unzoom" → map returns to showing all sites
+
+**Select site → auto-advance (Commit 3):**
+- Click "Select site" on a fitting card → small spinner "Detecting roads…" → page advances directly to Stage 3 (Review and confirm) with no second scroll-down confirm
+- In Stage 3, the selected site is present; "Generate the layout" should be enabled
+- Verify full flow: search → comparison cards → select → Stage 3 → generate layout
+
+**Back-navigation (Commit 3):**
+- From Stage 3, click "2. Site selection" in the stepper to go back
+- The comparison cards reappear with the selected site highlighted; the fixed bottom bar shows an enabled "Confirm site" button
+- Clicking "Confirm site" advances back to Stage 3
+
+### App state at session end
+
+One clean Streamlit instance on port 8505. Branch `main`.
+
+---
+
 ## HANDOFF — 27 June 2026 (Stage 1 disaster topic — diagnose + fix — 1 commit)
 
 ### Session objective
