@@ -134,9 +134,10 @@ header[data-testid="stHeader"] {
     display: none !important;
 }
 
-/* Hide Streamlit chrome for presentation */
-#MainMenu { visibility: hidden; }
-footer    { visibility: hidden; }
+/* Hide Streamlit chrome for presentation — display:none removes reserved space so
+   our position:fixed bottom bars are truly flush to the viewport bottom. */
+#MainMenu { display: none !important; }
+footer    { display: none !important; }
 
 /* Score breakdown container */
 div[data-testid="stExpander"] {

@@ -245,16 +245,16 @@ def render_stepper(current_stage: str) -> None:
 
 
 def stage_input():
-    # Reserve space: bar (56px) stacks above chat input (~76px) → 155px clears both.
+    # Padding clears Streamlit's sticky chat_input (~76px) so content doesn't scroll behind it.
+    # No fixed bottom bar here — render_input_stage() already provides an enabled/disabled
+    # "Find a site on the map" button at the top of the page AND a second one inside the
+    # completion-summary panel just above the chat input, so the fixed bar is not needed
+    # and was colliding with st.chat_input().
     st.markdown(
-        '<style>.block-container{padding-bottom:155px!important;}</style>',
+        '<style>.block-container{padding-bottom:90px!important;}</style>',
         unsafe_allow_html=True,
     )
     render_input_stage()
-    inputs = st.session_state.get("site_inputs", {})
-    missing = [_FIELD_LABEL.get(f, f) for f in _STAGE1_REQUIRED if inputs.get(f) is None]
-    # bottom=76 positions bar above Streamlit's chat_input (~76px tall)
-    _render_fixed_continue("Find a site on the map", not missing, missing, "stage1", "location", bottom=76)
 
 
 def stage_location():
