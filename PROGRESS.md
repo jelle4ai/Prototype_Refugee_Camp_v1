@@ -2,6 +2,55 @@
 
 ---
 
+## HANDOFF — 27 June 2026 (Stage 1 disaster-topic fix — 1 commit)
+
+### Session objective
+
+Fix the Stage 1 conversational assistant raising / discussing natural disasters with the user, even though it had been instructed not to. Hard boundary: only `src/conversation.py` (system prompt strings) touched — no placement, scoring, compliance gate, capacity, site-search, or any other stage.
+
+### Diagnosis
+
+There was **no existing "don't mention disasters" rule** in the system prompt. The bug had two active triggers:
+
+1. **Primary (line 54 before fix):** The assistant was instructed to ask `"(1) cause or reason for the displacement"` with no guidance on neutrality. When asking about displacement cause, the model reaches for prototypical examples — flood, drought, earthquake — because those are the canonical causes. This actively caused the assistant to volunteer disaster topics.
+
+2. **Secondary (lines 59–61 before fix):** The site-selection criteria listed `"away from natural hazards (floods, earthquakes, landslides)"` — this primed the model with the same vocabulary even in non-site-selection contexts.
+
+The root cause was **a prompted question with no neutral framing, combined with disaster vocabulary in the same prompt** — not a weak rule that failed to hold, but no rule at all.
+
+### Fix strategy
+
+Following the principle of removing the trigger rather than just adding a "don't" rule:
+
+1. **Hard rule added** (WHAT YOU MUST NOT DO): explicit prohibition — never bring up, suggest, or volunteer natural disasters as topics or examples; if the user mentions one, acknowledge in one sentence and move on.
+2. **Displacement cause ask made neutral**: instruction now says to ask simply (e.g. "What brought people to need this camp?") and explicitly prohibits naming disaster types as examples.
+3. **Disaster examples stripped from site criteria**: `"away from natural hazards (floods, earthquakes, landslides)"` → `"away from natural hazards"` — the model is no longer primed with specific disaster vocabulary.
+
+### What changed
+
+| # | Commit | File(s) | Change |
+|---|--------|---------|--------|
+| 1 | *(see below)* | `src/conversation.py` | Three targeted edits to `_CONVERSATION_SYSTEM_PROMPT_BASE`: added hard "no disasters" rule in WHAT YOU MUST NOT DO; made displacement cause question neutral with explicit no-examples instruction; removed flood/earthquake/landslide examples from site criteria |
+
+### Engine untouched confirmation
+
+No changes to: placement, scoring, compliance gate, capacity logic, site-search (`src/site_search.py`), summary, brand, app.py, or any other file.
+
+### Regression results
+
+12/12 tests passed (`test_fd_placement`, `test_hp_bias`). `test_community_retry.py` has a pre-existing module-level `sys.exit(1)` failure that predates this session — unchanged.
+
+### How to verify the fix
+
+Start fresh: `streamlit run app.py --server.port 8505`
+
+Type something like:
+> "We're setting up a camp in Kampala for families who've been displaced."
+
+The assistant should ask about climate or duration next — **it should NOT mention floods, drought, earthquakes, or any disaster type**. When it eventually asks about displacement cause, it should ask neutrally (e.g. "What brought people to need this camp?") without volunteering disaster examples. If you type a disaster cause yourself (e.g. "flooding"), it should acknowledge briefly and move to the next field — not elaborate.
+
+---
+
 ## HANDOFF — 27 June 2026 (Navigation + interaction — 5 commits)
 
 ### Session objective
