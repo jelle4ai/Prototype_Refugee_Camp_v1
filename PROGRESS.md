@@ -2,6 +2,36 @@
 
 ---
 
+## HANDOFF — 27 June 2026 (Stage 1 chat-input cutoff fix — 1 commit)
+
+### Session objective
+
+Undo an overshot spacing change: the previous "close the gap" commit zeroed out the chat input container's internal padding, which pushed the visible input box into/behind the continue bar (cutoff). Restore full visibility with a safe gap. Presentation only. Hard boundary: no logic touched.
+
+### Root cause
+
+`1479b92` added `padding-bottom:0!important;margin-bottom:0!important` to `[data-testid="stChatInput"]` and its children. The `stChatInput` container has natural internal bottom whitespace that the input field sits above. Zeroing that padding collapsed the whitespace, effectively sliding the visible box downward until it overlapped the bar.
+
+### What changed
+
+| # | Commit | File(s) | Change |
+|---|--------|---------|--------|
+| 1 | `10c9821` | `app.py` | Removed the zero-padding/margin rule. Raised `bottom` from `56px` → `68px` on `[data-testid="stChatInput"]` and matching JS value — container bottom now sits 12px above the bar's top edge, with the container's natural internal padding keeping the visible field fully clear. Increased `.block-container` `padding-bottom` from 115px → 140px to clear the higher offset. |
+
+### Regression results
+
+12/12 passed.
+
+### How to verify
+
+Load Stage 1 at `http://localhost:8505`. Scroll to the bottom. The chat input box should be fully visible as a complete, un-cut box with a small clear gap between its bottom and the top of the continue bar.
+
+### App state at session end
+
+One clean Streamlit instance on port 8505. Branch `main`.
+
+---
+
 ## HANDOFF — 27 June 2026 (Stage 1 chat-input gap nudge — 1 commit)
 
 ### Session objective
