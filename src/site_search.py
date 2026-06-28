@@ -961,7 +961,7 @@ def render_location_stage() -> None:
     _sel_for:  str | None = None
 
     for i, c in enumerate(candidates):
-        is_selected = (st.session_state["ss2_selected"] == c["label"])
+        is_selected = (st.session_state.get("ss2_selected") == c["label"])
         is_focused  = (st.session_state.get("ss2_focused") == c["label"])
         fits        = c.get("fits_population", True)
         pros, cons  = _pros_cons(c)
@@ -1180,7 +1180,7 @@ def render_location_stage() -> None:
         st.rerun()
 
     # ── Selected parcel — fetch roads then advance to review ─────────────────
-    sel_label = st.session_state["ss2_selected"]
+    sel_label = st.session_state.get("ss2_selected")
     if sel_label is None:
         return
 
