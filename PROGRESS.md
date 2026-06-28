@@ -2,6 +2,59 @@
 
 ---
 
+## HANDOFF — 28 June 2026 (Session 5 — crash fix + Stage 4 whitespace — 2 commits)
+
+### Session objective
+
+Fix a `KeyError` crash when clicking "Choose a different site", and eliminate the remaining whitespace gap at the top of Stage 4.
+
+### What changed
+
+| # | Commit | Files | Change |
+|---|--------|-------|--------|
+| 1 | `2556a7d` | `src/site_search.py` | Changed two direct `st.session_state["ss2_selected"]` reads to `.get("ss2_selected")` at lines 964 and 1183. "Choose a different site" pops this key, so the direct read raised `KeyError` on the next render. With `.get()`, a missing key returns `None`: the card loop shows no card highlighted, and the road-fetch block exits early via the existing `if sel_label is None: return` guard. |
+| 2 | `63d10a3` | `app.py`, `src/brand.py` | Removed the `st.markdown('<style>…</style>')` call from `stage_layout()`. This CSS-only call created a Streamlit DOM element with a ~16px flex gap appearing as blank space before the first visible content. The `padding-bottom:72px` it set is now in `brand.py`'s global `.block-container` rule (Stage 1's `160px !important` override still wins). |
+
+### Crash fix — details
+
+**Crash path:** "Choose a different site" (Stage 3 → Stage 2) pops `ss2_selected` from session state, sets `stage = "location"`, reruns. `render_location_stage()` then reaches the card-rendering loop without `ss2_selected` in session state → `KeyError`.
+
+**Lines fixed:**
+- `site_search.py:964`: `st.session_state["ss2_selected"]` → `.get("ss2_selected")` (card highlight check)
+- `site_search.py:1183`: `st.session_state["ss2_selected"]` → `.get("ss2_selected")` (road-fetch entry guard)
+
+The guard at line 1184 (`if sel_label is None: return`) already handles `None`, so no further changes were needed. Lines 1195, 1221-1222 (other `ss2_*` reads) are never reached when `sel_label is None`.
+
+### Stage 4 whitespace fix — details
+
+**Root cause:** `st.markdown('<style>…</style>')` was the first call in `stage_layout()`. Even with invisible content, Streamlit wraps every `st.*` call in a `stVerticalBlock` container with a ~16px flex gap. Other stages hide this empty element behind an immediate `st.header()`. Stage 4 no longer has a header, so the gap was visible before the road data caption.
+
+**Fix:** Promoted `padding-bottom:72px` to the global `.block-container` rule in `brand.py` and deleted the per-stage `st.markdown()` from `stage_layout()`. The Stage 4 render tree now starts with the road data status element directly below the stepper.
+
+### Hard-boundary confirmation
+
+- Placement, scoring, compliance, capacity, site-search logic: **untouched**
+- Only defensive `.get()` reads in session-state handling (UI layer)
+- Only CSS moved between global and per-stage injection (presentation layer)
+
+### Regression results
+
+Both commits: 12/12 passed.
+
+### How to verify
+
+Hard-reload **http://localhost:8505** (Ctrl+Shift+R).
+
+**Crash fix:** Run Enschede/pop=1100, select a site, proceed to Stage 3 (Review and confirm). Click "Choose a different site". Should return to Stage 2 with no crash, candidates shown with none highlighted, able to pick a new site and proceed.
+
+**Whitespace:** Generate a layout and go to Stage 4. The road data status or compliance banner should appear immediately below the stepper — no large blank band above it.
+
+### App state at session end
+
+One clean Streamlit instance on port 8505. Branch `main`.
+
+---
+
 ## HANDOFF — 28 June 2026 (Stage 4 layout result — reorder + declutter — 3 commits)
 
 ### Session objective
