@@ -2,6 +2,60 @@
 
 ---
 
+## HANDOFF — 28 June 2026 (Session 9 — letter labels on map + typology card — 2 commits)
+
+### Session objective
+
+Replace Session 8's Maki sprite markers with simple white letter labels on
+the map, and update the typology card to match.  Hard boundary: no
+placement, scoring, compliance, capacity, or site-search logic changed.
+
+### Commit 1 — Letter labels on map (`593bf37`)
+
+`FACILITY_MAKI` dict (Maki sprite markers) replaced by `FACILITY_LABEL`
+(plain strings).  Icon overlay section in `_layout_map` simplified:
+all overlays now use `go.Scattermap(mode="text", textfont=dict(size=8, color="white"))`.
+Font size 8 px — small enough to sit inside facility footprints at normal
+zoom without spilling; still legible.
+
+| Facility | Letter |
+|---|---|
+| health_post | H |
+| toilets (latrine blocks) | L |
+| washing_facilities | W |
+| water_points | Wp |
+| schools | S |
+| food_distribution | F |
+| community_space | C |
+| administrative_area | A |
+| worship_facility | R |
+| shelter_units | (none) |
+
+### Commit 2 — Typology card letter badges (`03b402d`)
+
+`_typology_card_html()` updated:
+- All emoji entities removed
+- `_badge()` helper updated to handle 2-char labels (Wp uses pill shape,
+  single letters use circle)
+- Every mapped facility row now shows its letter badge in the facility's
+  own colour, matching the map overlay exactly
+- Shelter, roads, obstacles keep the dash
+
+### Confirmation: logic untouched
+
+Only `app.py` changed across both commits.  No placement, scoring,
+compliance, capacity, or site-search files touched.
+
+### Regression results
+
+Both commits: 12/12 tests passed (~126 s each run).
+
+### App state at session end
+
+One clean Streamlit instance on port 8505. Branch `main`.
+
+---
+
 ## HANDOFF — 28 June 2026 (Session 8 — map migration + Maki pictograms — 3 commits)
 
 ### Session objective
