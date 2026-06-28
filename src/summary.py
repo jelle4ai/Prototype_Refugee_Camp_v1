@@ -307,16 +307,7 @@ def render_summary_stage() -> None:
 
     st.divider()
 
-    # ── Sections ──────────────────────────────────────────────────────────────
-    with st.container(border=True):
-        _section_population(inputs)
-
-    with st.container(border=True):
-        _section_context(inputs)
-
-    with st.container(border=True):
-        _section_services(inputs)
-
+    # ── Sections (Site → Population → Context → Services) ────────────────────
     with st.container(border=True):
         if site is not None:
             _section_site(inputs, site)
@@ -326,6 +317,15 @@ def render_summary_stage() -> None:
             if st.button("Go to site selection →", key="btn_goto_site"):
                 st.session_state["stage"] = "location"
                 st.rerun()
+
+    with st.container(border=True):
+        _section_population(inputs)
+
+    with st.container(border=True):
+        _section_context(inputs)
+
+    with st.container(border=True):
+        _section_services(inputs)
 
     # ── Generate button at bottom too (for users who scroll through the form) ─
     st.divider()
