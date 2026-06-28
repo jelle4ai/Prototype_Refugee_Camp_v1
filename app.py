@@ -365,8 +365,8 @@ def _typology_card_html() -> str:
     """HTML table for the Building typology reference card shown in Stage 4.
 
     5th column shows the same letter label used on the map:
-      letter badge – matches the map text overlay (H, L, W, Wp, S, F, C, A, R)
-      dash         – types with no map label (shelters, roads, obstacles)
+      letter badge – matches the map text overlay (H, L, W, S, F, C, A, R)
+      dash         – types with no map label (water points, shelters, roads, obstacles)
     """
     # 5-tuple: (hex_fill, display_name, size_spec, std_codes, map_symbol_html)
     # map_symbol_html is raw HTML injected into the 5th cell.
@@ -393,7 +393,7 @@ def _typology_card_html() -> str:
             ("#8A8D93", "Existing building (OpenStreetMap)", "detected automatically", "obstacle", _E),
         ]),
         ("WATER AND SANITATION", [
-            ("#3B73A6", "Water point",      "r = 3 m",   "WS2, WS3, WS6",      _badge("Wp", "#3B73A6")),
+            ("#3B73A6", "Water point",      "r = 3 m",   "WS2, WS3, WS6",      _E),
             ("#3C8060", "Latrine block",    "4 m × 6 m", "SA1, SA3, SA4, SA9", _badge("L",  "#3C8060")),
             ("#3E9AA0", "Washing facility", "4 m × 5 m", "SA2",                _badge("W",  "#3E9AA0")),
         ]),
@@ -455,11 +455,12 @@ FACILITY_LABEL: dict[str, str] = {
     "schools":              "S",
     "toilets":              "L",
     "washing_facilities":   "W",
-    "water_points":         "Wp",
     "worship_facility":     "R",
     "food_distribution":    "F",
     "community_space":      "C",
     "administrative_area":  "A",
+    # water_points: no letter — round marker shape already distinguishes them
+    # shelter_units: no letter — too many, dense fill already identifies them
 }
 
 
