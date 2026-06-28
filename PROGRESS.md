@@ -2,6 +2,70 @@
 
 ---
 
+## HANDOFF — 28 June 2026 (Stage 3 review cleanup + reorder — 3 commits)
+
+### Session objective
+
+Presentation/UX cleanup of Stage 3 (Review and confirm): remove duplicate generate button, eliminate the manual "Save all changes" save step, and reorder sections so the most important items are first.
+
+### How "Save all changes" worked (and how it now works)
+
+Previously, `number_input` and `text_input` widgets in Stage 3 wrote to `st.session_state` keys (`sum_men`, `sum_women`, `sum_children`, `sum_cultural_notes`, etc.) — NOT directly to `site_inputs`. The "Save all changes" button copied those widget values into `site_inputs` and called `st.rerun()`. Generation (in `stage_layout()`) reads from `site_inputs`, so a user who edited fields but forgot to click "Save all changes" before generating would produce a layout from stale values.
+
+Climate and duration buttons already wrote to `inputs` directly and triggered an immediate `st.rerun()` — those were live before this session.
+
+**How edits reach generation now:** A new `apply_summary_live_edits(inputs)` function in `src/summary.py` reads all `sum_*` widget keys from `st.session_state` and writes them into `site_inputs`. It is called in `stage_summary()` in `app.py` on every render, before `render_summary_stage()`. This means that by the time any button causes a navigation to the layout stage (in-page generate button, sticky generate button, or any future path), the inputs are already synced. Generation receives exactly the same data it did before — just from live fields instead of a manual save step.
+
+### What changed
+
+| # | Commit | File(s) | Change |
+|---|--------|---------|--------|
+| 1 | `9e8daa7` | `src/summary.py` | Removed the top "Generate the layout" button (both the active and disabled variants) that appeared directly below the green/red status banner. Status banner kept. Two generate paths remain: bottom in-page button + sticky bottom-right button. |
+| 2 | `ca561e6` | `src/summary.py`, `app.py` | Added `apply_summary_live_edits(inputs)` (public function, called in `stage_summary()` in `app.py`). Removed "Save all changes" button. Updated caption in Population section. |
+| 3 | `858d0cf` | `src/summary.py` | Reordered sections: Site → Population → Context → Services. |
+
+### New Stage 3 section order
+
+1. **Selected site** — map, parcel area, bounding box, road segments, "Choose a different site"
+2. **Population and demographics** — M/W/C number inputs
+3. **Context** — climate, duration, cultural notes, special needs
+4. **Site services** — displacement cause, water/power/sanitation (optional, so last)
+
+### Hard-boundary confirmation
+
+- Placement, scoring, compliance, capacity-estimate logic: **untouched**
+- Site-search logic: **untouched**
+- Generation data: **identical** — same fields, same values, now read from live widget state instead of requiring a manual save step
+
+### Regression results
+
+All three commits: 12/12 passed.
+
+### How to verify
+
+Hard-reload **http://localhost:8505** (Ctrl+Shift+R). Run a search (e.g. Enschede, pop=1100), select a site to reach Stage 3.
+
+**Commit 1 (no top button):** Stage 3 shows the green "All required information is present" banner at the top, followed by a divider, then the sections. There is NO generate button directly below the banner. The bottom in-page generate button (after the services section) and the sticky bottom-right button are both present and work.
+
+**Commit 2 (no Save All Changes, live values on generate):**
+- Change population (e.g. edit Men from 500 to 800, Women from 300 to 200, Children from 200 to 100 → total 1100)
+- Do NOT click any save button (there is none)
+- Click "Generate the layout →" (bottom) or the sticky button
+- The layout result should reflect the NEW population (1100), not the old value
+- The required-area figure and shelter count in the layout should match the edited values
+
+**Commit 3 (section order):** Sections appear in order: Selected site (with mini-map), Population and demographics, Context (climate/duration/notes), Site services. All sections are still editable.
+
+### Deferred / not done
+
+Nothing deferred from this session's scope.
+
+### App state at session end
+
+One clean Streamlit instance on port 8505. Branch `main`.
+
+---
+
 ## HANDOFF — 28 June 2026 (Stage 2 screening note spacing)
 
 ### Session objective
