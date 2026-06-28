@@ -606,11 +606,39 @@ def stage_layout():
         _clear_feedback_state()
         st.rerun()
 
-    lr          = st.session_state["layout_result"]
+    lr             = st.session_state["layout_result"]
     shelter_result = lr["shelter_result"]
     facilities     = lr["facilities"]
     roads          = lr["roads"]
     fac_status     = facilities.get("status", {})
+
+    # ── Pre-compute compliance + quality (shared by summary and detail sections)
+    _layout = {"shelter_result": shelter_result, "facilities": facilities, "roads": roads}
+    gate    = compliance_gate(_layout, site, reqs)
+    score   = score_layout(_layout, site, reqs)
+    total   = score["quality"]["total"]
+    failed  = [c for c in gate["checks"] if not c["pass"]]
+    passed  = [c for c in gate["checks"] if c["pass"]]
+
+    # ── Site capacity warning ─────────────────────────────────────────────────
+    _cap_msg = _site_capacity_warning(shelter_result, inputs)
+    if _cap_msg:
+        st.warning(_cap_msg)
+
+    # ── 1. Compact summary: compliance verdict + quality score ────────────────
+    if gate["pass"]:
+        st.success("**Compliance gate: PASS** — all hard constraints satisfied")
+    else:
+        st.error("**Compliance gate: FAIL** — one or more hard constraints violated")
+
+    _color    = "#2e7d32" if total >= 80 else "#e65100" if total >= 50 else "#c62828"
+    gate_note = "" if gate["pass"] else " *(non-compliant layout)*"
+    st.markdown(
+        f"<div style='font-size:2.2rem;font-weight:700;color:{_color};"
+        f"margin-top:0.6rem;margin-bottom:0.2rem'>"
+        f"Quality score: {total} / 100{gate_note}</div>",
+        unsafe_allow_html=True,
+    )
 
     move_summary = lr.get("last_move_summary")
     if move_summary:
@@ -632,67 +660,14 @@ def stage_layout():
             f"{move_summary['after']} ({arrow} {delta:+d})"
         )
 
-    # ── Site capacity warning — shown before the gate so the user sees WHY ──────
-    _cap_msg = _site_capacity_warning(shelter_result, inputs)
-    if _cap_msg:
-        st.warning(_cap_msg)
-
-    # ── Compliance gate (Step 3) ──────────────────────────────────────────────
-    _layout = {"shelter_result": shelter_result, "facilities": facilities, "roads": roads}
-    gate    = compliance_gate(_layout, site, reqs)
-
-    if gate["pass"]:
-        st.success("**Compliance gate: PASS** — all hard constraints satisfied")
-    else:
-        st.error("**Compliance gate: FAIL** — one or more hard constraints violated")
-
-    failed = [c for c in gate["checks"] if not c["pass"]]
-    passed = [c for c in gate["checks"] if c["pass"]]
-
-    with st.expander(
-        f"Compliance checks — {len(passed)} passed, {len(failed)} failed",
-        expanded=not gate["pass"],
-    ):
-        for c in gate["checks"]:
-            icon = "✓" if c["pass"] else "✗"
-            colour = "#2e7d32" if c["pass"] else "#c62828"
-            st.markdown(
-                f"<span style='color:{colour};font-weight:600'>{icon} {c['name']}</span>"
-                f" — {c['detail']}",
-                unsafe_allow_html=True,
-            )
-
-    # ── Quality score (Step 3) — only meaningful if gate passes ──────────────
-    score  = score_layout(_layout, site, reqs)
-    total  = score["quality"]["total"]
-    _color = "#2e7d32" if total >= 80 else "#e65100" if total >= 50 else "#c62828"
-    gate_note = "" if gate["pass"] else " *(non-compliant layout)*"
-    st.markdown(
-        f"<div style='font-size:2.2rem;font-weight:700;color:{_color};"
-        f"margin-top:0.6rem;margin-bottom:0.2rem'>"
-        f"Quality score: {total} / 100{gate_note}</div>",
-        unsafe_allow_html=True,
-    )
-    with st.expander("Quality score breakdown"):
-        score_rows = [
-            {
-                "Component":   c["name"].replace("_", " ").title(),
-                "Score":       f"{c['points']}/10",
-                "Weight":      f"×{c['weight']}",
-                "Explanation": c["explanation"],
-            }
-            for c in score["quality"]["components"]
-        ]
-        st.table(score_rows)
-
-    # ── Map ───────────────────────────────────────────────────────────────────
+    # ── 2. Camp layout map ────────────────────────────────────────────────────
     st.subheader("Camp layout")
     st.plotly_chart(
         _layout_map(site, shelter_result["shelters"], facilities, roads),
         use_container_width=True,
     )
 
-    # ── Feedback (Stage 5) ────────────────────────────────────────────────────
+    # ── 3. Feedback ───────────────────────────────────────────────────────────
     st.subheader("Feedback")
     st.write(
         "Describe what you'd like changed, in plain language. A compass-direction "
@@ -802,7 +777,32 @@ def stage_layout():
                     "the next step."
                 )
 
-    # ── Placement status ──────────────────────────────────────────────────────
+    # ── 4. Detail sections ────────────────────────────────────────────────────
+    with st.expander(
+        f"Compliance checks — {len(passed)} passed, {len(failed)} failed",
+        expanded=not gate["pass"],
+    ):
+        for c in gate["checks"]:
+            icon = "✓" if c["pass"] else "✗"
+            colour = "#2e7d32" if c["pass"] else "#c62828"
+            st.markdown(
+                f"<span style='color:{colour};font-weight:600'>{icon} {c['name']}</span>"
+                f" — {c['detail']}",
+                unsafe_allow_html=True,
+            )
+
+    with st.expander("Quality score breakdown"):
+        score_rows = [
+            {
+                "Component":   c["name"].replace("_", " ").title(),
+                "Score":       f"{c['points']}/10",
+                "Weight":      f"×{c['weight']}",
+                "Explanation": c["explanation"],
+            }
+            for c in score["quality"]["components"]
+        ]
+        st.table(score_rows)
+
     st.subheader("Placement status")
     sh_p, sh_r = shelter_result["placed"], shelter_result["required"]
     status_rows = [{"Facility": "Shelter units",
@@ -831,7 +831,6 @@ def stage_layout():
             ok = f"partial ({p}/{r})"
         status_rows.append({"Facility": label, "Placed": p, "Required": r, "OK": ok})
 
-    # ── Road network rows ─────────────────────────────────────────────────────
     conn     = roads.get("connected", True)
     stranded = roads.get("stranded", [])
     ex_m     = roads.get("entrance_m", (0.0, 0.0))
@@ -853,10 +852,8 @@ def stage_layout():
         "Required": "on boundary",
         "OK": "yes",
     })
-
     st.table(status_rows)
 
-    # ── Facility requirements table ───────────────────────────────────────────
     st.subheader("Facility requirements")
     req_rows = []
     for key, data in reqs.items():
@@ -877,20 +874,23 @@ def stage_layout():
         })
     st.table(req_rows)
 
-    # ── Site debug JSON ───────────────────────────────────────────────────────
+    # ── 5. Site data (debug) ──────────────────────────────────────────────────
     with st.expander("Site data (debug)"):
         summary = {k: v for k, v in site.items() if k != "roads_m"}
         summary["roads_count"] = len(site.get("roads_m", []))
         st.json(summary)
 
+    # ── 6. Controls ───────────────────────────────────────────────────────────
     st.divider()
-    if st.button("Reset layout", key="btn_reset_layout"):
-        del st.session_state["layout_result"]
-        _clear_feedback_state()
-        st.rerun()
-
-    if st.button("Start over", key="btn_layout"):
-        advance_stage()
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("Reset layout", key="btn_reset_layout"):
+            del st.session_state["layout_result"]
+            _clear_feedback_state()
+            st.rerun()
+    with col2:
+        if st.button("Start over", key="btn_layout"):
+            advance_stage()
 
 
 STAGE_HANDLERS = {
