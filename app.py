@@ -610,59 +610,7 @@ def stage_layout():
     shelter_result = lr["shelter_result"]
     facilities     = lr["facilities"]
     roads          = lr["roads"]
-    opt_log        = lr.get("opt_log", [])
     fac_status     = facilities.get("status", {})
-
-    # ── Optimiser button (Step 2) ─────────────────────────────────────────────
-    if st.button("Improve layout", key="btn_optimise", type="primary",
-                 use_container_width=True,
-                 help="Run greedy improvement loop (10 iterations max)"):
-        before_layout = {"shelter_result": shelter_result, "facilities": facilities, "roads": roads}
-        score_before = score_layout(before_layout, site, reqs)["quality"]["total"]
-
-        with st.spinner("Optimising facility positions…"):
-            fac_new, new_log = optimise_facilities(
-                site, reqs, facilities, shelter_result, roads, max_iter=10
-            )
-        lr["facilities"] = fac_new
-        lr["opt_log"]    = new_log
-        # Regenerate roads with improved positions
-        roads_new = place_roads(site, shelter_result, fac_new)
-        lr["roads"] = roads_new
-
-        after_layout = {"shelter_result": shelter_result, "facilities": fac_new, "roads": roads_new}
-        score_after = score_layout(after_layout, site, reqs)["quality"]["total"]
-        # Only count lines that record an actual move — optimise_facilities()
-        # also appends a final "Converged after N iteration(s)" summary line,
-        # which is not a move and must not be reported as one.
-        moved_count = sum(1 for entry in new_log if entry.startswith("iter "))
-        lr["last_optimise_summary"] = {
-            "moved": moved_count, "before": score_before, "after": score_after,
-        }
-        lr.pop("last_move_summary", None)
-        _clear_feedback_state()
-        st.rerun()
-
-    opt_summary = lr.get("last_optimise_summary")
-    if opt_summary:
-        if opt_summary["moved"] == 0:
-            st.info(
-                "No changes needed — this layout is already near-optimal "
-                f"(quality score: {opt_summary['after']})."
-            )
-        else:
-            delta = opt_summary["after"] - opt_summary["before"]
-            arrow = "▲" if delta > 0 else "▼" if delta < 0 else "→"
-            st.info(
-                f"**Optimiser result:** moved {opt_summary['moved']} facility "
-                f"position(s) — quality score {opt_summary['before']} → "
-                f"{opt_summary['after']} ({arrow} {delta:+d})"
-            )
-
-    if opt_log:
-        with st.expander(f"Optimiser log ({len(opt_log)} entries)"):
-            for entry in opt_log:
-                st.text(entry)
 
     move_summary = lr.get("last_move_summary")
     if move_summary:
