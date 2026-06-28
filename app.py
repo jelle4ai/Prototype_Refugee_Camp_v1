@@ -559,7 +559,10 @@ def _clear_feedback_state() -> None:
 
 
 def stage_layout():
-    st.header("Layout result")
+    st.markdown(
+        '<style>.block-container{padding-bottom:72px!important;}</style>',
+        unsafe_allow_html=True,
+    )
 
     inputs = st.session_state.get("site_inputs", {})
     site   = st.session_state.get("site")
