@@ -442,20 +442,19 @@ def _typology_card_html() -> str:
     )
 
 
-# Maki symbol mapping for facility types on the MapLibre map.
-# Types not listed here get no icon (shelter_units: too many, colour identifies them).
-# "maki"  → MapLibre built-in Maki sprite symbol name
-# "text"  → white letter label at centroid (used when no good Maki match exists)
-FACILITY_MAKI: dict[str, tuple[str, str]] = {
-    "health_post":         ("maki", "hospital"),
-    "schools":             ("maki", "school"),
-    "toilets":             ("maki", "toilet"),
-    "washing_facilities":  ("maki", "laundry"),
-    "water_points":        ("maki", "drinking-water"),
-    "worship_facility":    ("maki", "place-of-worship"),
-    "food_distribution":   ("maki", "grocery"),
-    "community_space":     ("text", "C"),
-    "administrative_area": ("text", "A"),
+# Letter label mapping for facility types on the map.
+# Displayed as small white text centred on each placed polygon.
+# shelter_units omitted — too many, dense fill already identifies them.
+FACILITY_LABEL: dict[str, str] = {
+    "health_post":          "H",
+    "schools":              "S",
+    "toilets":              "L",
+    "washing_facilities":   "W",
+    "water_points":         "Wp",
+    "worship_facility":     "R",
+    "food_distribution":    "F",
+    "community_space":      "C",
+    "administrative_area":  "A",
 }
 
 
@@ -555,30 +554,21 @@ def _layout_map(site: dict,
             f"{label} ({len(items)})", fill, line,
         ))
 
-    # ── Icon / symbol overlays (colour-blind-safe discriminator) ─────────────
+    # ── Letter label overlays (colour-blind-safe discriminator) ─────────────
     for key in draw_order:
         items = facilities.get(key, [])
-        if not items or key not in FACILITY_MAKI:
+        if not items or key not in FACILITY_LABEL:
             continue
-        icon_type, icon_val = FACILITY_MAKI[key]
+        letter = FACILITY_LABEL[key]
         c_lats, c_lons = _facility_centroids(items, origin_lat, origin_lon)
-        if icon_type == "maki":
-            traces.append(go.Scattermap(
-                lat=c_lats, lon=c_lons,
-                mode="markers",
-                marker=dict(symbol=icon_val, size=14, color="white"),
-                showlegend=False,
-                hoverinfo="none",
-            ))
-        else:
-            traces.append(go.Scattermap(
-                lat=c_lats, lon=c_lons,
-                mode="text",
-                text=[icon_val] * len(c_lats),
-                textfont=dict(size=11, color="white"),
-                showlegend=False,
-                hoverinfo="none",
-            ))
+        traces.append(go.Scattermap(
+            lat=c_lats, lon=c_lons,
+            mode="text",
+            text=[letter] * len(c_lats),
+            textfont=dict(size=8, color="white"),
+            showlegend=False,
+            hoverinfo="none",
+        ))
 
     # ── Zoom ──────────────────────────────────────────────────────────────────
     lat_span_km = (max(p_lats) - min(p_lats)) * 111.32
