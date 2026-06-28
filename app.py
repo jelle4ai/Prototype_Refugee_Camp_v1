@@ -362,46 +362,64 @@ def _road_trace(segments: list[dict],
 
 
 def _typology_card_html() -> str:
-    """HTML table for the Building typology reference card shown in Stage 4."""
+    """HTML table for the Building typology reference card shown in Stage 4.
+
+    5th column shows the same symbol used on the map:
+      emoji  – for types with a Maki icon (hospital, school, toilet, …)
+      letter – for community_space (C) and administrative_area (A)
+      –      – for types with no map symbol (shelters, roads, obstacles)
+    """
+    # 5-tuple: (hex_fill, display_name, size_spec, std_codes, map_symbol_html)
+    # map_symbol_html is raw HTML injected into the 5th cell.
+    _E = ""   # no map symbol
+    def _badge(letter: str, bg: str) -> str:
+        return (
+            f'<span style="display:inline-flex;align-items:center;'
+            f'justify-content:center;width:20px;height:20px;border-radius:50%;'
+            f'background:{bg};color:white;font-size:0.7rem;font-weight:700;">'
+            f'{letter}</span>'
+        )
+
     groups = [
         ("RESIDENTIAL", [
-            ("#E7D4AE", "Shelter unit — warm climate", "5 m × 3.5 m", "SH1"),
-            ("#CDB98A", "Shelter unit — cold climate", "5 m × 4.5 m", "SH2"),
-            ("#E6E1D4", "Firebreak", "30 m wide open strip", "SH7"),
-            ("#8A8D93", "Existing building (OpenStreetMap)", "detected automatically", "obstacle"),
+            ("#E7D4AE", "Shelter unit — warm climate", "5 m × 3.5 m", "SH1",          _E),
+            ("#CDB98A", "Shelter unit — cold climate", "5 m × 4.5 m", "SH2",          _E),
+            ("#E6E1D4", "Firebreak",                        "30 m wide open strip", "SH7",       _E),
+            ("#8A8D93", "Existing building (OpenStreetMap)","detected automatically", "obstacle", _E),
         ]),
         ("WATER AND SANITATION", [
-            ("#3B73A6", "Water point", "r = 3 m", "WS2, WS3, WS6"),
-            ("#3C8060", "Latrine block", "4 m × 6 m", "SA1, SA3, SA4, SA9"),
-            ("#3E9AA0", "Washing facility", "4 m × 5 m", "SA2"),
+            ("#3B73A6", "Water point",      "r = 3 m",      "WS2, WS3, WS6",      "&#x1F4A7;"),
+            ("#3C8060", "Latrine block",    "4 m × 6 m","SA1, SA3, SA4, SA9", "&#x1F6BD;"),
+            ("#3E9AA0", "Washing facility", "4 m × 5 m","SA2",                "&#x1F9FA;"),
         ]),
         ("HEALTH", [
-            ("#C2603F", "Health post", "Variable", "HE1, HE3"),
+            ("#C2603F", "Health post", "Variable", "HE1, HE3", "&#x1F3E5;"),
         ]),
         ("EDUCATION", [
-            ("#6F8A45", "School — small (up to 200 children)", "Min 1.24 m² per child", "ED1, ED3, ED5"),
-            ("#93A95B", "School — large (500+ children)", "Larger size", "ED1, ED3, ED5"),
+            ("#6F8A45", "School — small (up to 200 children)", "Min 1.24 m² per child", "ED1, ED3, ED5", "&#x1F3EB;"),
+            ("#93A95B", "School — large (500+ children)",       "Larger size",                "ED1, ED3, ED5", "&#x1F3EB;"),
         ]),
         ("COMMUNITY FACILITIES", [
-            ("#D08A45", "Food distribution point", "Variable", "FD3, FD4"),
-            ("#7A5E9E", "Worship facility", "Variable", "RB1, RB2"),
-            ("#5566B0", "Community space", "Variable", "CS1"),
-            ("#957A45", "Administrative area", "Variable", "CS2"),
+            ("#D08A45", "Food distribution point", "Variable", "FD3, FD4", "&#x1F6D2;"),
+            ("#7A5E9E", "Worship facility",         "Variable", "RB1, RB2", "&#x26EA;"),
+            ("#5566B0", "Community space",           "Variable", "CS1",      _badge("C", "#5566B0")),
+            ("#957A45", "Administrative area",       "Variable", "CS2",      _badge("A", "#957A45")),
         ]),
         ("ROADS", [
-            ("#6B7078", "Main road", "Min 6 m wide", "PA1, PA6"),
-            ("#B6BAC0", "Secondary footpath", "Min 4 m wide", "PA2"),
-            ("#B0643F", "Existing road (OpenStreetMap)", "detected automatically", "PA6"),
+            ("#6B7078", "Main road",                "Min 6 m wide",         "PA1, PA6", _E),
+            ("#B6BAC0", "Secondary footpath",        "Min 4 m wide",         "PA2",      _E),
+            ("#B0643F", "Existing road (OpenStreetMap)", "detected automatically", "PA6", _E),
         ]),
     ]
     rows = []
     for group_name, items in groups:
         rows.append(
-            f'<tr><td colspan="4" style="padding:8px 0 3px;font-size:0.72rem;'
+            f'<tr><td colspan="5" style="padding:8px 0 3px;font-size:0.72rem;'
             f'font-weight:600;letter-spacing:0.07em;color:#6B655E;'
             f'text-transform:uppercase;border-bottom:none;">{group_name}</td></tr>'
         )
-        for hex_col, name, size, code in items:
+        for hex_col, name, size, code, sym_html in items:
+            sym_cell = sym_html if sym_html else '<span style="color:#C8C0B0;">&#x2014;</span>'
             rows.append(
                 f'<tr style="border-bottom:1px solid #E0DACD;">'
                 f'<td style="padding:5px 10px 5px 0;width:26px;vertical-align:middle;">'
@@ -411,8 +429,10 @@ def _typology_card_html() -> str:
                 f'font-weight:500;white-space:nowrap;vertical-align:middle;">{name}</td>'
                 f'<td style="padding:5px 14px 5px 0;font-size:0.80rem;color:#6B655E;'
                 f'white-space:nowrap;vertical-align:middle;">{size}</td>'
-                f'<td style="padding:5px 0;font-size:0.78rem;color:#1F4788;'
+                f'<td style="padding:5px 14px 5px 0;font-size:0.78rem;color:#1F4788;'
                 f'font-family:\'JetBrains Mono\',monospace;vertical-align:middle;">{code}</td>'
+                f'<td style="padding:5px 0;font-size:1.05rem;vertical-align:middle;'
+                f'text-align:center;width:32px;">{sym_cell}</td>'
                 f'</tr>'
             )
     inner = "".join(rows)
