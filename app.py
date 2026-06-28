@@ -555,9 +555,12 @@ def _layout_map(site: dict,
         if not items:
             continue
         label, fill, line = FACILITY_STYLE[key]
+        letter = FACILITY_LABEL.get(key)
+        legend_name = (f"{letter} · {label} ({len(items)})"
+                       if letter else f"{label} ({len(items)})")
         traces.append(_packed_trace(
             items, origin_lat, origin_lon,
-            f"{label} ({len(items)})", fill, line,
+            legend_name, fill, line,
         ))
 
     # ── Letter label overlays (colour-blind-safe discriminator) ─────────────
