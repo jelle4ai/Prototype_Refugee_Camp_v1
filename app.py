@@ -16,7 +16,7 @@ from src.scoring import score_layout, compliance_gate
 from src.location import render_location_stage
 from src.requirements_engine import compute_requirements
 from src.site_search import metres_to_latlon
-from src.summary import render_summary_stage
+from src.summary import render_summary_stage, apply_summary_live_edits
 from src.feedback import classify_feedback, MOVABLE_FACILITY_KEYS
 from src.brand import apply_brand, render_brand_header
 
@@ -302,6 +302,7 @@ def stage_summary():
         '<style>.block-container{padding-bottom:72px!important;}</style>',
         unsafe_allow_html=True,
     )
+    apply_summary_live_edits(st.session_state.get("site_inputs", {}))
     render_summary_stage()
     # Fixed bottom-right continue button (reuses same missing-fields logic as summary.py)
     inputs = st.session_state.get("site_inputs", {})

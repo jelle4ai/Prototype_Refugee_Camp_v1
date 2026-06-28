@@ -132,7 +132,7 @@ def _section_population(inputs: dict) -> None:
         f"**Total population:** {pop:,} &nbsp;|&nbsp; "
         f"**Required site area:** ~{req_ha:.1f} ha &nbsp; *(population × 45 m²)*"
     )
-    st.caption("Edit the breakdown below and click **Save all changes** to apply.")
+    st.caption("Edit any value below — changes are applied automatically on generate.")
 
     c1, c2, c3 = st.columns(3)
     c1.number_input("Men",      min_value=0, step=100, value=m_cur, key="sum_men")
@@ -255,6 +255,33 @@ def _section_site(inputs: dict, site: dict) -> None:
         st.plotly_chart(_site_map(site), use_container_width=True)
 
 
+# ── Live-edit sync ────────────────────────────────────────────────────────────
+
+def apply_summary_live_edits(inputs: dict) -> None:
+    """Copy live widget values (sum_* keys) into inputs on every Stage 3 render.
+
+    Called by stage_summary() in app.py before render_summary_stage() so that
+    both the in-page and sticky generate buttons always see current field values
+    with no manual save step required.  Only syncs keys that exist in
+    st.session_state, i.e. the corresponding widget has been rendered at least once.
+    """
+    for field, key in [("men", "sum_men"), ("women", "sum_women"), ("children", "sum_children")]:
+        if key in st.session_state:
+            inputs[field] = int(st.session_state[key] or 0)
+    if any(k in st.session_state for k in ("sum_men", "sum_women", "sum_children")):
+        inputs["population"] = (
+            (inputs.get("men") or 0)
+            + (inputs.get("women") or 0)
+            + (inputs.get("children") or 0)
+        )
+    for field in ["cultural_notes", "special_needs",
+                  "cause", "water_source", "power_source", "sanitation"]:
+        key = f"sum_{field}"
+        if key in st.session_state:
+            raw = (st.session_state[key] or "").strip()
+            inputs[field] = raw if raw else None
+
+
 # ── Main render entry point ───────────────────────────────────────────────────
 
 def render_summary_stage() -> None:
@@ -299,21 +326,6 @@ def render_summary_stage() -> None:
             if st.button("Go to site selection →", key="btn_goto_site"):
                 st.session_state["stage"] = "location"
                 st.rerun()
-
-    # ── Single save for all editable text and number fields ───────────────────
-    if st.button("Save all changes", key="btn_save_all", use_container_width=True):
-        m = int(st.session_state.get("sum_men") or inputs.get("men") or 0)
-        w = int(st.session_state.get("sum_women") or inputs.get("women") or 0)
-        c = int(st.session_state.get("sum_children") or inputs.get("children") or 0)
-        inputs["men"]        = m
-        inputs["women"]      = w
-        inputs["children"]   = c
-        inputs["population"] = m + w + c
-        for field in ["cultural_notes", "special_needs",
-                      "cause", "water_source", "power_source", "sanitation"]:
-            raw = (st.session_state.get(f"sum_{field}") or "").strip()
-            inputs[field] = raw if raw else None
-        st.rerun()
 
     # ── Generate button at bottom too (for users who scroll through the form) ─
     st.divider()
