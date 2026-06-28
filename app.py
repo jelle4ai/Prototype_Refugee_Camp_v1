@@ -316,8 +316,8 @@ def stage_summary():
 def _packed_trace(items: list[dict],
                   origin_lat: float, origin_lon: float,
                   label: str, fill: str, line: str,
-                  opacity: float = 0.80) -> go.Scattermapbox:
-    """Convert a list of {corners_m} items into one multi-polygon Scattermapbox trace."""
+                  opacity: float = 0.80) -> go.Scattermap:
+    """Convert a list of {corners_m} items into one multi-polygon Scattermap trace."""
     lats: list = []
     lons: list = []
     for item in items:
@@ -330,7 +330,7 @@ def _packed_trace(items: list[dict],
         lats.append(None)
         lons.append(None)
     r, g, b = int(fill[1:3], 16), int(fill[3:5], 16), int(fill[5:7], 16)
-    return go.Scattermapbox(
+    return go.Scattermap(
         lat=lats, lon=lons,
         mode="lines",
         fill="toself",
@@ -342,8 +342,8 @@ def _packed_trace(items: list[dict],
 
 def _road_trace(segments: list[dict],
                 origin_lat: float, origin_lon: float,
-                label: str, color: str, width: float) -> go.Scattermapbox:
-    """Pack road polyline segments into one Scattermapbox line trace."""
+                label: str, color: str, width: float) -> go.Scattermap:
+    """Pack road polyline segments into one Scattermap line trace."""
     lats: list = []
     lons: list = []
     for seg in segments:
@@ -353,7 +353,7 @@ def _road_trace(segments: list[dict],
             lons.append(lo)
         lats.append(None)
         lons.append(None)
-    return go.Scattermapbox(
+    return go.Scattermap(
         lat=lats, lon=lons,
         mode="lines",
         line=dict(color=color, width=width),
@@ -440,7 +440,7 @@ def _layout_map(site: dict,
     mid_lat = (min(p_lats) + max(p_lats)) / 2
     mid_lon = (min(p_lons) + max(p_lons)) / 2
 
-    traces: list = [go.Scattermapbox(
+    traces: list = [go.Scattermap(
         lat=p_lats, lon=p_lons,
         mode="lines",
         fill="toself", fillcolor="rgba(230,57,70,0.06)",
@@ -470,7 +470,7 @@ def _layout_map(site: dict,
         ex_m = roads.get("entrance_m")
         if ex_m:
             e_la, e_lo = metres_to_latlon(ex_m[0], ex_m[1], origin_lat, origin_lon)
-            traces.append(go.Scattermapbox(
+            traces.append(go.Scattermap(
                 lat=[e_la], lon=[e_lo],
                 mode="markers",
                 marker=dict(size=12, color="#FF4500"),
@@ -509,7 +509,7 @@ def _layout_map(site: dict,
 
     fig = go.Figure(traces)
     fig.update_layout(
-        mapbox=dict(
+        map=dict(
             style="open-street-map",
             center=dict(lat=mid_lat, lon=mid_lon),
             zoom=zoom,
