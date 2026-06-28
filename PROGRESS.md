@@ -2,6 +2,51 @@
 
 ---
 
+## HANDOFF — 28 June 2026 (Session 10 — remove Wp, add letters to map legend — 2 commits)
+
+### Session objective
+
+Remove the "Wp" letter from water points (their round marker shape already
+distinguishes them), and add the facility letters to the Plotly map's
+built-in legend box.  Hard boundary: no placement/scoring/compliance logic
+changed.
+
+### Commit 1 — Remove Wp (`4e6b64f`)
+
+- `FACILITY_LABEL`: removed `"water_points": "Wp"`.  Added comments
+  explaining why water points and shelters are omitted.
+- `_typology_card_html()`: Water point row reverted from `_badge("Wp", ...)` to
+  `_E` (dash), consistent with the map.
+- Docstring updated to drop "Wp" from the letter list.
+
+### Commit 2 — Letters in map legend (`7892443`)
+
+In `_layout_map`'s polygon draw loop, each facility key is looked up in
+`FACILITY_LABEL`.  If a letter exists, the Plotly trace `name` becomes
+`"{letter} · {label} ({count})"` (e.g. `"L · Latrine blocks (32)"`).
+Keys without a letter (`water_points`, `shelter_units`, roads) keep their
+existing name unchanged.
+
+Map legend now reads:
+  `L · Latrine blocks`  `W · Washing facilities`  `S · Schools`
+  `C · Community space`  `F · Food distribution`  `A · Administrative area`
+  `H · Health post`  `R · Worship facility` (if placed)
+  `Water points` / `Shelter units` / roads — no letter prefix
+
+### Confirmation: logic untouched
+
+Only `app.py` changed across both commits.
+
+### Regression results
+
+Both commits: 12/12 tests passed (~129 s each run).
+
+### App state at session end
+
+One clean Streamlit instance on port 8505. Branch `main`.
+
+---
+
 ## HANDOFF — 28 June 2026 (Session 9 — letter labels on map + typology card — 2 commits)
 
 ### Session objective
