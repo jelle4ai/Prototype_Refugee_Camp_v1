@@ -271,18 +271,12 @@ def render_summary_stage() -> None:
         inputs["required_area_m2"] = result["total_area_m2"]
         inputs["suggested_side_m"] = result["suggested_side_m"]
 
-    # ── Primary action at top — real Streamlit button, always visible ─────────
+    # ── Status banner ─────────────────────────────────────────────────────────
     gaps = _missing(inputs, site)
     if gaps:
         st.error("**Still needed:** " + ", ".join(gaps))
-        st.button("Generate the layout", type="primary", use_container_width=True,
-                  disabled=True, key="btn_gen_top_disabled")
     else:
         st.success("All required information is present. Ready to generate.")
-        if st.button("Generate the layout →", type="primary",
-                     use_container_width=True, key="btn_gen_top"):
-            st.session_state["stage"] = "layout"
-            st.rerun()
 
     st.divider()
 
