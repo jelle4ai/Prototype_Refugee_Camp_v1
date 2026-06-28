@@ -347,16 +347,42 @@ def _place_community(
     # ── 4. Washing facility (SA2: 1 per 100 pp) ─────────────────────────────
     n_washing   = max(1, ceil(n_families * _AVG_PP / 100))
     washing: list[dict] = []
-    ref = latrines[0]["corners_m"] if latrines else _rect(cx, cy - _LT_SOUTH, _LT_W, _LT_H)
-    rcx, rcy = _cen(ref)
+    # Two reference points tried in order: first latrine south of centre,
+    # then the northernmost latrine as fallback.  The south-latrine zone is
+    # sometimes pinched between an adjacent community's shelter ring (below)
+    # and this community's own ring shelters (above), blocking all tries from
+    # a single reference.  The north zone is usually in free space above the
+    # community.  Offsets now include south (0, -_LT_H-1) which was missing
+    # from the original three; max_rings increased 4→8 (6 m→12 m radius) to
+    # escape the narrow pinch zone when it is encountered.
+    if latrines:
+        _south_ref = _cen(latrines[0]["corners_m"])
+        _north_lt  = max(latrines, key=lambda l: _cen(l["corners_m"])[1])
+        _north_ref = _cen(_north_lt["corners_m"])
+        _wsh_refs  = [_south_ref, _north_ref]
+    else:
+        _wsh_refs = [
+            _cen(_rect(cx, cy - _LT_SOUTH, _LT_W, _LT_H)),
+            _cen(_rect(cx, cy + _LT_SOUTH, _LT_W, _LT_H)),
+        ]
+    _WSH_OFFSETS = (
+        (_LT_W + 1.0,        0),
+        (0,         _LT_H + 1.0),
+        (0,        -(_LT_H + 1.0)),
+        (-(_LT_W + 1.0),     0),
+    )
     for _ in range(n_washing):
-        for ddx, ddy in ((_LT_W + 1.0, 0), (0, _LT_H + 1.0),
-                          (-(_LT_W + 1.0), 0)):
-            wc = _nudge(parcel, rcx + ddx, rcy + ddy, _WSH_W, _WSH_H,
-                        step=1.5, max_rings=4, occupied=occ)
-            if wc:
-                washing.append({"corners_m": wc})
-                occ = _union_add(occ, ShapelyPolygon(wc), clearance=0.5)
+        _placed = False
+        for _rcx, _rcy in _wsh_refs:
+            for ddx, ddy in _WSH_OFFSETS:
+                wc = _nudge(parcel, _rcx + ddx, _rcy + ddy, _WSH_W, _WSH_H,
+                            step=1.5, max_rings=8, occupied=occ)
+                if wc:
+                    washing.append({"corners_m": wc})
+                    occ = _union_add(occ, ShapelyPolygon(wc), clearance=0.5)
+                    _placed = True
+                    break
+            if _placed:
                 break
 
     # ── 5. Community convex hull (for block-level management and roads) ───────
