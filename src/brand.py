@@ -276,6 +276,7 @@ button[data-testid="stBaseButton-secondary"]:hover {
 /* Main content block padding — clears the now-visible transparent header (~2.875rem) */
 .block-container {
     padding-top: 3.5rem !important;
+    padding-bottom: 72px !important;
 }
 </style>
 """
