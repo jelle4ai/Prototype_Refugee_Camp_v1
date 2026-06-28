@@ -361,6 +361,67 @@ def _road_trace(segments: list[dict],
     )
 
 
+def _typology_card_html() -> str:
+    """HTML table for the Building typology reference card shown in Stage 4."""
+    groups = [
+        ("RESIDENTIAL", [
+            ("#E7D4AE", "Shelter unit — warm climate", "5 m × 3.5 m", "SH1"),
+            ("#CDB98A", "Shelter unit — cold climate", "5 m × 4.5 m", "SH2"),
+            ("#E6E1D4", "Firebreak", "30 m wide open strip", "SH7"),
+            ("#8A8D93", "Existing building (OpenStreetMap)", "detected automatically", "obstacle"),
+        ]),
+        ("WATER AND SANITATION", [
+            ("#3B73A6", "Water point", "r = 3 m", "WS2, WS3, WS6"),
+            ("#3C8060", "Latrine block", "4 m × 6 m", "SA1, SA3, SA4, SA9"),
+            ("#3E9AA0", "Washing facility", "4 m × 5 m", "SA2"),
+        ]),
+        ("HEALTH", [
+            ("#C2603F", "Health post", "Variable", "HE1, HE3"),
+        ]),
+        ("EDUCATION", [
+            ("#6F8A45", "School — small (up to 200 children)", "Min 1.24 m² per child", "ED1, ED3, ED5"),
+            ("#93A95B", "School — large (500+ children)", "Larger size", "ED1, ED3, ED5"),
+        ]),
+        ("COMMUNITY FACILITIES", [
+            ("#D08A45", "Food distribution point", "Variable", "FD3, FD4"),
+            ("#7A5E9E", "Worship facility", "Variable", "RB1, RB2"),
+            ("#5566B0", "Community space", "Variable", "CS1"),
+            ("#957A45", "Administrative area", "Variable", "CS2"),
+        ]),
+        ("ROADS", [
+            ("#6B7078", "Main road", "Min 6 m wide", "PA1, PA6"),
+            ("#B6BAC0", "Secondary footpath", "Min 4 m wide", "PA2"),
+            ("#B0643F", "Existing road (OpenStreetMap)", "detected automatically", "PA6"),
+        ]),
+    ]
+    rows = []
+    for group_name, items in groups:
+        rows.append(
+            f'<tr><td colspan="4" style="padding:8px 0 3px;font-size:0.72rem;'
+            f'font-weight:600;letter-spacing:0.07em;color:#6B655E;'
+            f'text-transform:uppercase;border-bottom:none;">{group_name}</td></tr>'
+        )
+        for hex_col, name, size, code in items:
+            rows.append(
+                f'<tr style="border-bottom:1px solid #E0DACD;">'
+                f'<td style="padding:5px 10px 5px 0;width:26px;vertical-align:middle;">'
+                f'<div style="width:18px;height:18px;border-radius:3px;'
+                f'background:{hex_col};border:1px solid rgba(0,0,0,0.15);"></div></td>'
+                f'<td style="padding:5px 12px 5px 0;font-size:0.82rem;color:#232323;'
+                f'font-weight:500;white-space:nowrap;vertical-align:middle;">{name}</td>'
+                f'<td style="padding:5px 14px 5px 0;font-size:0.80rem;color:#6B655E;'
+                f'white-space:nowrap;vertical-align:middle;">{size}</td>'
+                f'<td style="padding:5px 0;font-size:0.78rem;color:#1F4788;'
+                f'font-family:\'JetBrains Mono\',monospace;vertical-align:middle;">{code}</td>'
+                f'</tr>'
+            )
+    inner = "".join(rows)
+    return (
+        f'<table style="width:100%;border-collapse:collapse;'
+        f'font-family:Inter,system-ui,sans-serif;">{inner}</table>'
+    )
+
+
 def _layout_map(site: dict,
                 shelters: list[dict],
                 facilities: dict,
@@ -392,18 +453,18 @@ def _layout_map(site: dict,
         if roads.get("existing_roads"):
             traces.append(_road_trace(
                 roads["existing_roads"], origin_lat, origin_lon,
-                "Existing roads", "#707070", 2.5,
+                "Existing roads (PA6)", "#B0643F", 2.5,
             ))
         if roads.get("main_road"):
             traces.append(_road_trace(
                 roads["main_road"], origin_lat, origin_lon,
-                "Main road (PA1)", "#A0A0A0", 4,
+                "Main road (PA1)", "#6B7078", 4,
             ))
         sec = roads.get("secondary_roads", []) + roads.get("footpaths", [])
         if sec:
             traces.append(_road_trace(
                 sec, origin_lat, origin_lon,
-                "Secondary roads / footpaths (PA2)", "#C8C8C8", 2,
+                "Secondary footpaths (PA2)", "#B6BAC0", 2,
             ))
         # Entrance marker
         ex_m = roads.get("entrance_m")
@@ -664,6 +725,8 @@ def stage_layout():
         _layout_map(site, shelter_result["shelters"], facilities, roads),
         use_container_width=True,
     )
+    with st.expander("Building typology reference"):
+        st.markdown(_typology_card_html(), unsafe_allow_html=True)
 
     # ── 3. Feedback ───────────────────────────────────────────────────────────
     st.subheader("Feedback")

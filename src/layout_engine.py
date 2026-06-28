@@ -39,16 +39,16 @@ import networkx as _nx
 # ── Colours ───────────────────────────────────────────────────────────────────
 
 FACILITY_STYLE: dict[str, tuple[str, str, str]] = {
-    "shelter_units":       ("Shelter units",       "#F5DEB3", "#C4A882"),
-    "health_post":         ("Health post",         "#E24B4A", "#b03838"),
-    "water_points":        ("Water points",        "#378ADD", "#2560a0"),
-    "food_distribution":   ("Food distribution",   "#D85A30", "#a04020"),
-    "community_space":     ("Community space",     "#7F77DD", "#5a50b0"),
-    "administrative_area": ("Administrative area", "#8B6914", "#604700"),
-    "schools":             ("Schools",             "#639922", "#456c14"),
-    "worship_facility":    ("Worship facility",    "#9C27B0", "#6a1a80"),
-    "toilets":             ("Latrine blocks",      "#8BC34A", "#5f8830"),
-    "washing_facilities":  ("Washing facilities",  "#26C6DA", "#1890a0"),
+    "shelter_units":       ("Shelter units",       "#E7D4AE", "#AD9F82"),
+    "health_post":         ("Health post",         "#C2603F", "#91482F"),
+    "water_points":        ("Water points",        "#3B73A6", "#2C557C"),
+    "food_distribution":   ("Food distribution",   "#D08A45", "#9C6733"),
+    "community_space":     ("Community space",     "#5566B0", "#3F4C84"),
+    "administrative_area": ("Administrative area", "#957A45", "#6F5B33"),
+    "schools":             ("Schools",             "#6F8A45", "#536733"),
+    "worship_facility":    ("Worship facility",    "#7A5E9E", "#5B4676"),
+    "toilets":             ("Latrine blocks",      "#3C8060", "#2D6048"),
+    "washing_facilities":  ("Washing facilities",  "#3E9AA0", "#2E7378"),
 }
 
 
