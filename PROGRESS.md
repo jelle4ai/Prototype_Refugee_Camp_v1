@@ -2,6 +2,78 @@
 
 ---
 
+## HANDOFF — 28 June 2026 (Session 8 — map migration + Maki pictograms — 3 commits)
+
+### Session objective
+
+Migrate deprecated Plotly map API, add Maki pictogram markers on the Stage 4
+layout map, and update the typology reference card to match.
+Hard boundary: no placement, scoring, compliance, capacity, or site-search
+logic changed.
+
+### Commit 1 — MapLibre migration (`cf1e04d`)
+
+`go.Scattermapbox` (deprecated in Plotly 6.8.0) → `go.Scattermap` throughout
+`_layout_map`, `_packed_trace`, and `_road_trace`.  Layout key changed from
+`mapbox=dict(...)` to `map=dict(...)`.  No visual change — identical polygon
+fill/line rendering, same open-street-map tile style.  Unlocks reliable Maki
+sprite support needed by Commit 2.
+
+### Commit 2 — Maki icon overlay traces on the map (`491f4b1`)
+
+New `FACILITY_MAKI` dict and `_facility_centroids()` helper.  For each placed
+non-shelter facility type a `showlegend=False` `go.Scattermap` marker trace is
+added at the centroid of every placed polygon.  Icon size is 14 px (screen-fixed,
+zoom-independent).  White icon on the coloured polygon fill.
+
+| Facility | Map symbol | Type |
+|----------|-----------|------|
+| health_post | `hospital` | Maki |
+| schools | `school` | Maki |
+| toilets (latrine blocks) | `toilet` | Maki |
+| washing_facilities | `laundry` | Maki |
+| water_points | `drinking-water` | Maki |
+| worship_facility | `place-of-worship` | Maki |
+| food_distribution | `grocery` | Maki |
+| community_space | `C` | text |
+| administrative_area | `A` | text |
+| shelter_units | — | none (too dense) |
+
+Maki icons render from MapLibre's built-in sprite (no Mapbox token required).
+
+### Commit 3 — Typology card matching (`deac646`)
+
+`_typology_card_html()` extended with a 5th column showing the same symbol as
+the map:
+- Emoji HTML entities for Maki types (&#x1F3E5; hospital, &#x1F3EB; school,
+  &#x1F6BD; toilet, &#x1F9FA; laundry basket, &#x1F4A7; water drop,
+  &#x26EA; chapel, &#x1F6D2; shopping cart)
+- Coloured letter badge for text types (C/A in a circle matching facility colour)
+- Em dash for shelter, roads, firebreak, obstacles (no map icon)
+HTML entity approach — encoding-safe, no Python unicode issues.
+
+### Confirmation: logic untouched
+
+No placement, scoring, compliance, capacity, or site-search files changed.
+Only `app.py` modified across all three commits.
+
+### Regression results
+
+All three commits: 12/12 tests passed (~126 s each run).
+
+### Icons that may need verification
+
+The Maki sprite is loaded at runtime from MapLibre's embedded atlas.  If any
+symbol name is misspelled or absent in the sprite, MapLibre silently drops the
+marker (no crash, just missing icon).  Expected good symbols from the Maki set:
+hospital, school, toilet, laundry, drinking-water, place-of-worship, grocery.
+
+### App state at session end
+
+One clean Streamlit instance on port 8505. Branch `main`.
+
+---
+
 ## HANDOFF — 28 June 2026 (Session 7 — typology card + legend colours + em dash — 2 commits)
 
 ### Session objective
