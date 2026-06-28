@@ -286,7 +286,7 @@ def apply_summary_live_edits(inputs: dict) -> None:
 
 def render_summary_stage() -> None:
     st.header("Review and confirm")
-    st.caption("Every field is editable — no need to go back to earlier stages.")
+    st.caption("Every field is editable, so there is no need to go back to earlier stages.")
 
     inputs = st.session_state["site_inputs"]
     site   = st.session_state.get("site")
