@@ -2,6 +2,104 @@
 
 ---
 
+## HANDOFF — 28 June 2026 (Session 6 — washing-facility placement bug — 1 commit)
+
+### Session objective
+
+Fix a real placement bug: washing facilities were consistently under-placed
+(e.g. 4 placed vs 6 required), failing the SA2 compliance gate.  The fix
+is to the placement engine only — the SA2 requirement, the compliance gate,
+and the scoring are unchanged.
+
+### Diagnosis
+
+**Failure path (diagnosed by instrumented trace):**
+
+`_place_community` in `src/layout_engine.py` places one washing unit per
+community near the first south latrine.  It tried only 3 offset directions
+(east, north, west) with `_nudge(step=1.5, max_rings=4)` = 6 m search.
+
+In multi-row camp layouts the south-latrine zone sits in a geometry pinch:
+- **Below**: the community-below's ring shelters reach up to ~y=50 m (ring-4
+  shelter at cy_below + ry4 ≈ bottom-row-centre + 32 m) with 2.01 m SH6
+  clearance extending to ~y=54 m.
+- **Above**: this community's own ring-4 south shelter at cy − 32 m with
+  6 m SA4 buffer pushes latrines into that same zone, and the SH6 clearance
+  on placed shelters covers y≈47–54.
+
+Concrete example — community 5 at (143, 83), pop=600, 285×285 m parcel:
+- South latrines: lat0 at (143.5, 49), lat1 displaced to (163.5, 64) by
+  the pinch zone.  Reference = lat0 = (143.5, 49).
+- East try (+5, 0) → (148.5, 49): dead center of lat1's nominal position,
+  blocked.
+- North try (0, +4) → (143.5, 53): inside lat0's clearance (occ y=[47,52])
+  and immediately hits ring-4 shelter occ (y=46.99–54.41).  Ring search
+  (6 m) can't escape — ring 3 shelter occ starts at y=52.46.
+- West try (−5, 0) → (138.5, 49): west edge of washing unit at x=136.5,
+  lat0 buffer west edge at x=140.5 — touching boundary → intersects →
+  blocked.  Ring search wanders but hits community-below's shelter ring.
+- **South was never tried.**  (143.5, 45) = 4 m south of lat0 is in a gap
+  between lat0's bottom buffer (y=47) and community-below's ring gap at
+  x=[141.5, 145.5] → clear.
+
+### Fix (commit `b94f8f6`, `src/layout_engine.py` `_place_community`)
+
+Three targeted changes to the washing-facility placement block only:
+
+| Change | Before | After |
+|--------|--------|-------|
+| Offset directions | east, north, west (3) | east, north, **south**, west (4) |
+| Search radius | `max_rings=4` → 6 m | `max_rings=8` → 12 m |
+| Reference points | only south latrine (latrines[0]) | south latrine, then northernmost latrine as fallback |
+
+**Nothing else changed.** SA2 requirement rule (`ceil(pop/100)`), the
+compliance gate check, and the quality scoring are all untouched.
+
+### Before / after
+
+| Scenario | Before | After |
+|----------|--------|-------|
+| 285×285 m pop=600 (8 communities) | 7/6 placed (1 community missing) | 8/6 placed, 0 missing |
+| Irregular 300×285 pop=600 | 7/6 placed (1 missing) | 8/6 placed, 0 missing |
+| 285×285 m pop=1100 (14 communities) | 14/11 placed, 0 missing | 14/11 placed, 0 missing |
+| Stage4 test Scenario A: 700×400 pop=2000 | 25/20 | 25/20 |
+| Stage4 test Scenario B: 420×350 pop=1500 | 19/15 | 19/15 |
+
+All cases: 0.00 m² overlap, gate PASS, road network connected.
+
+### Regression results
+
+12/12 tests passed (same as before the fix).
+
+### Requirement/gate/scoring confirmation
+
+- `requirements_engine.py`: **unchanged**
+- Compliance gate in `scoring.py`: **unchanged**
+- Scoring weights/criteria: **unchanged**
+- All placement rules (SA4, SH6, WS5, etc.): still enforced
+- The fix only adds more search directions and a fallback reference — it
+  cannot place washing units that overlap anything because `_nudge` always
+  checks the full `occ` geometry.
+
+### How to verify
+
+Hard-reload **http://localhost:8505**. Run Enschede / pop=600 on an ~8 ha
+site, generate.
+
+**Stage 4 should show:**
+- Washing facilities count ≥ ceil(600/100) = 6 (likely 7–8 due to
+  over-placement, same as latrines)
+- Compliance gate check "Count: washing facilities" → PASS
+- 0 overlaps
+
+Also confirm latrines still pass and no other checks regressed.
+
+### App state at session end
+
+One clean Streamlit instance on port 8505. Branch `main`.
+
+---
+
 ## HANDOFF — 28 June 2026 (Session 5 — crash fix + Stage 4 whitespace — 2 commits)
 
 ### Session objective
