@@ -2,6 +2,82 @@
 
 ---
 
+## HANDOFF — 28 June 2026 (Stage 4 layout result — reorder + declutter — 3 commits)
+
+### Session objective
+
+Presentation/UX cleanup of Stage 4 (Layout result): remove the "Improve layout" button, reorder sections so the most important result appears first, and tighten the top whitespace.
+
+### What changed
+
+| # | Commit | File | Change |
+|---|--------|------|--------|
+| 1 | `60e505b` | `app.py` | Removed the "Improve layout" button (and its opt_summary info banner and opt_log expander). The underlying `optimise_facilities()` function in `src/layout_engine.py` is untouched. `lr.pop("last_optimise_summary", None)` in the move handler is left in place as a harmless no-op. |
+| 2 | `446f38b` | `app.py` | Reordered Stage 4 sections (see new order below). Compliance gate + score are now pre-computed once early in the function and shared by both the compact summary and the detail expanders — no logic change, only hoisted above the UI rendering. Reset/Start-over placed side-by-side in two columns. |
+| 3 | `a42c4d0` | `app.py` | Removed `st.header("Layout result")` (the stepper already labels the step). Added `padding-bottom:72px` CSS consistent with the other three stage functions. The compliance gate verdict now starts directly below the stepper with no large empty gap. |
+
+### New Stage 4 section order
+
+1. **Road-data status** — caption/info/error about OSM road data quality (stays at top; context for interpreting the whole result)
+2. **Site capacity warning** (if any) — shown before compliance so the user sees WHY it may fail
+3. **Compliance gate verdict** (PASS/FAIL banner) + **Quality score headline** — compact summary at the top
+4. **Move-applied notice** (if a feedback move was just executed)
+5. **Camp layout map** — the main visual result, immediately visible
+6. **Feedback** — text area + Submit, close to the map
+7. **Compliance checks expander** (detail of the verdict)
+8. **Quality score breakdown expander** (detail of the score)
+9. **Placement status table**
+10. **Facility requirements table**
+11. **Site data (debug) expander** — at the very bottom
+12. **Controls** — Reset layout + Start over side-by-side in two columns, below a divider
+
+### "Improve layout" button — dormant handler status
+
+The button and all its UI (opt_summary banner, opt_log expander) are removed from Stage 4. There is no dormant in-page handler. The `lr.pop("last_optimise_summary", None)` call inside the feedback-move handler is a harmless no-op (the key is never set anymore). The `optimise_facilities()` function in `src/layout_engine.py` is untouched.
+
+### Hard-boundary confirmation
+
+- Placement, scoring, compliance, capacity-estimate logic: **untouched**
+- Site-search logic: **untouched**
+- Map facility colours: **untouched**
+- Feedback / move logic: **untouched** (only its display position changed)
+
+### Regression results
+
+All three commits: 12/12 passed.
+
+### How to verify
+
+Hard-reload **http://localhost:8505** (Ctrl+Shift+R). Run Enschede/pop=1100, select a site, click generate.
+
+**Stage 4 should show (top to bottom):**
+- Road-data caption (✓ real road data loaded: N segments)
+- Green "Compliance gate: PASS" banner (or red FAIL)
+- Quality score headline (e.g. "Quality score: 78 / 100")
+- *(NO "Improve layout" button)*
+- "Camp layout" subheader + interactive map
+- "Feedback" subheader + text area + Submit feedback button
+- "Compliance checks — N passed, N failed" expander (collapsed if PASS)
+- "Quality score breakdown" expander
+- "Placement status" subheader + table
+- "Facility requirements" subheader + table
+- "Site data (debug)" expander
+- Divider + Reset layout | Start over (side-by-side)
+
+**No "Improve layout" button anywhere on the page.**
+
+**Less whitespace:** content starts very close to the stepper bar — no large empty gap above the compliance banner.
+
+**Feedback still works:** enter "move the food distribution north", click Submit, result shows correctly.
+
+**Reset layout:** clears and regenerates the layout. **Start over:** returns to Stage 1.
+
+### App state at session end
+
+One clean Streamlit instance on port 8505. Branch `main`.
+
+---
+
 ## HANDOFF — 28 June 2026 (Stage 3 review cleanup + reorder — 3 commits)
 
 ### Session objective
