@@ -2,6 +2,81 @@
 
 ---
 
+## HANDOFF — 28 June 2026 (Session 7 — typology card + legend colours + em dash — 2 commits)
+
+### Session objective
+
+Update Stage 4 building typology reference card and map legend to match an
+updated reference card.  Fix one em dash on Stage 3.
+Hard boundary: no placement, scoring, compliance, capacity, or site-search
+logic changed.
+
+### Commit 1 — typology card and colour update (`a2675d7`)
+
+**`src/layout_engine.py` — FACILITY_STYLE colours updated:**
+
+| Facility | Old fill | New fill |
+|----------|----------|----------|
+| Shelter units | #F5DEB3 | #E7D4AE |
+| Health post | #E24B4A | #C2603F |
+| Water points | #378ADD | #3B73A6 |
+| Latrine blocks | #8BC34A | #3C8060 |
+| Washing facilities | #26C6DA | #3E9AA0 |
+| Food distribution | #D85A30 | #D08A45 |
+| Community space | #7F77DD | #5566B0 |
+| Administrative area | #8B6914 | #957A45 |
+| Schools | #639922 | #6F8A45 |
+| Worship facility | #9C27B0 | #7A5E9E |
+
+Line colours darkened proportionally to match each new fill.
+These same colours are used for Plotly map traces, so the drawn
+facilities and the map legend now both match the reference card.
+
+**`app.py` — road trace colours updated:**
+
+| Road | Old colour | New colour |
+|------|-----------|-----------|
+| Main road (PA1) | #A0A0A0 | #6B7078 |
+| Secondary footpaths (PA2) | #C8C8C8 | #B6BAC0 |
+| Existing roads (PA6) | #707070 | #B0643F |
+
+**`app.py` — Building typology reference expander added:**
+
+New function `_typology_card_html()` builds an HTML table with all
+facility types, grouped as: Residential, Water and Sanitation, Health,
+Education, Community Facilities, Roads.  Each row shows a colour swatch,
+name, size specification, and standard code(s).  Includes both warm-
+and cold-climate shelter variants, firebreaks, existing buildings/roads,
+and small/large school variants as per the reference.
+
+The expander "Building typology reference" appears below the map in
+Stage 4 (collapsed by default).
+
+### Commit 2 — em dash fix (`d917f29`)
+
+`src/summary.py:289`: removed em dash from Stage 3 caption.
+
+Before: `"Every field is editable — no need to go back to earlier stages."`
+After:  `"Every field is editable, so there is no need to go back to earlier stages."`
+
+### Confirmation: only display changed
+
+- `requirements_engine.py`: unchanged
+- `scoring.py`: unchanged
+- `layout_engine.py`: only FACILITY_STYLE dict changed (display colours/labels)
+- All placement functions: unchanged
+- Compliance gate: unchanged
+
+### Regression results
+
+Both commits: 12/12 tests passed (all 12 in ~126 s).
+
+### App state at session end
+
+One clean Streamlit instance on port 8505. Branch `main`.
+
+---
+
 ## HANDOFF — 28 June 2026 (Session 6 — washing-facility placement bug — 1 commit)
 
 ### Session objective
