@@ -364,19 +364,24 @@ def _road_trace(segments: list[dict],
 def _typology_card_html() -> str:
     """HTML table for the Building typology reference card shown in Stage 4.
 
-    5th column shows the same symbol used on the map:
-      emoji  – for types with a Maki icon (hospital, school, toilet, …)
-      letter – for community_space (C) and administrative_area (A)
-      –      – for types with no map symbol (shelters, roads, obstacles)
+    5th column shows the same letter label used on the map:
+      letter badge – matches the map text overlay (H, L, W, Wp, S, F, C, A, R)
+      dash         – types with no map label (shelters, roads, obstacles)
     """
     # 5-tuple: (hex_fill, display_name, size_spec, std_codes, map_symbol_html)
     # map_symbol_html is raw HTML injected into the 5th cell.
-    _E = ""   # no map symbol
+    _E = ""   # no map label
+
     def _badge(letter: str, bg: str) -> str:
+        two_char = len(letter) > 1
+        w = "26px" if two_char else "20px"
+        r = "4px"  if two_char else "50%"
+        fs = "0.62rem" if two_char else "0.70rem"
         return (
             f'<span style="display:inline-flex;align-items:center;'
-            f'justify-content:center;width:20px;height:20px;border-radius:50%;'
-            f'background:{bg};color:white;font-size:0.7rem;font-weight:700;">'
+            f'justify-content:center;min-width:{w};height:20px;border-radius:{r};'
+            f'padding:0 2px;background:{bg};color:white;'
+            f'font-size:{fs};font-weight:700;">'
             f'{letter}</span>'
         )
 
@@ -384,31 +389,31 @@ def _typology_card_html() -> str:
         ("RESIDENTIAL", [
             ("#E7D4AE", "Shelter unit — warm climate", "5 m × 3.5 m", "SH1",          _E),
             ("#CDB98A", "Shelter unit — cold climate", "5 m × 4.5 m", "SH2",          _E),
-            ("#E6E1D4", "Firebreak",                        "30 m wide open strip", "SH7",       _E),
-            ("#8A8D93", "Existing building (OpenStreetMap)","detected automatically", "obstacle", _E),
+            ("#E6E1D4", "Firebreak",                   "30 m wide open strip", "SH7",       _E),
+            ("#8A8D93", "Existing building (OpenStreetMap)", "detected automatically", "obstacle", _E),
         ]),
         ("WATER AND SANITATION", [
-            ("#3B73A6", "Water point",      "r = 3 m",      "WS2, WS3, WS6",      "&#x1F4A7;"),
-            ("#3C8060", "Latrine block",    "4 m × 6 m","SA1, SA3, SA4, SA9", "&#x1F6BD;"),
-            ("#3E9AA0", "Washing facility", "4 m × 5 m","SA2",                "&#x1F9FA;"),
+            ("#3B73A6", "Water point",      "r = 3 m",   "WS2, WS3, WS6",      _badge("Wp", "#3B73A6")),
+            ("#3C8060", "Latrine block",    "4 m × 6 m", "SA1, SA3, SA4, SA9", _badge("L",  "#3C8060")),
+            ("#3E9AA0", "Washing facility", "4 m × 5 m", "SA2",                _badge("W",  "#3E9AA0")),
         ]),
         ("HEALTH", [
-            ("#C2603F", "Health post", "Variable", "HE1, HE3", "&#x1F3E5;"),
+            ("#C2603F", "Health post", "Variable", "HE1, HE3", _badge("H", "#C2603F")),
         ]),
         ("EDUCATION", [
-            ("#6F8A45", "School — small (up to 200 children)", "Min 1.24 m² per child", "ED1, ED3, ED5", "&#x1F3EB;"),
-            ("#93A95B", "School — large (500+ children)",       "Larger size",                "ED1, ED3, ED5", "&#x1F3EB;"),
+            ("#6F8A45", "School — small (up to 200 children)", "Min 1.24 m² per child", "ED1, ED3, ED5", _badge("S", "#6F8A45")),
+            ("#93A95B", "School — large (500+ children)",       "Larger size",           "ED1, ED3, ED5", _badge("S", "#93A95B")),
         ]),
         ("COMMUNITY FACILITIES", [
-            ("#D08A45", "Food distribution point", "Variable", "FD3, FD4", "&#x1F6D2;"),
-            ("#7A5E9E", "Worship facility",         "Variable", "RB1, RB2", "&#x26EA;"),
+            ("#D08A45", "Food distribution point", "Variable", "FD3, FD4", _badge("F", "#D08A45")),
+            ("#7A5E9E", "Worship facility",         "Variable", "RB1, RB2", _badge("R", "#7A5E9E")),
             ("#5566B0", "Community space",           "Variable", "CS1",      _badge("C", "#5566B0")),
             ("#957A45", "Administrative area",       "Variable", "CS2",      _badge("A", "#957A45")),
         ]),
         ("ROADS", [
-            ("#6B7078", "Main road",                "Min 6 m wide",         "PA1, PA6", _E),
-            ("#B6BAC0", "Secondary footpath",        "Min 4 m wide",         "PA2",      _E),
-            ("#B0643F", "Existing road (OpenStreetMap)", "detected automatically", "PA6", _E),
+            ("#6B7078", "Main road",                     "Min 6 m wide",         "PA1, PA6", _E),
+            ("#B6BAC0", "Secondary footpath",             "Min 4 m wide",         "PA2",      _E),
+            ("#B0643F", "Existing road (OpenStreetMap)",  "detected automatically", "PA6",    _E),
         ]),
     ]
     rows = []
