@@ -1095,7 +1095,7 @@ header[data-testid="stHeader"] {
     background: transparent !important;
     padding-top: 0 !important;
     padding-bottom: 80px !important;
-    max-width: 460px !important;
+    max-width: 500px !important;
     margin: 0 auto !important;
 }
 [data-testid="stForm"] {
@@ -1117,10 +1117,10 @@ header[data-testid="stHeader"] {
     # Logo uses bone fill (#F4F1EA) so the mark reads on the indigo background.
     st.markdown(
         """
-<div style="text-align:center;padding:64px 0 28px 0;">
-  <svg viewBox="-66 -66 132 132" width="84" height="84"
+<div style="text-align:center;padding:48px 0 28px 0;">
+  <svg viewBox="-66 -66 132 132" width="128" height="128"
        role="img" aria-label="Hamlet mark"
-       style="display:block;margin:0 auto 20px auto;">
+       style="display:block;margin:0 auto 24px auto;">
     <g fill="#F4F1EA">
       <rect x="-7"    y="-53"   width="14" height="14" rx="3"/>
       <rect x="25.5"  y="-39.5" width="14" height="14" rx="3"/>
@@ -1133,15 +1133,15 @@ header[data-testid="stHeader"] {
     </g>
     <circle r="21" fill="#C2603F"/>
   </svg>
-  <div style="font-family:'Source Serif 4',Georgia,serif;font-size:2rem;
-              font-weight:500;color:#F4F1EA;line-height:1.1;margin-bottom:8px;">
+  <div style="font-family:'Source Serif 4',Georgia,serif;font-size:3.2rem;
+              font-weight:500;color:#F4F1EA;line-height:1.1;margin-bottom:10px;">
     Hamlet
   </div>
-  <div style="font-family:'Inter',system-ui,sans-serif;font-size:0.82rem;
-              color:#C9D4E8;letter-spacing:0.04em;margin-bottom:20px;">
+  <div style="font-family:'Inter',system-ui,sans-serif;font-size:1rem;
+              color:#C9D4E8;letter-spacing:0.04em;margin-bottom:22px;">
     Refugee camp layout generator
   </div>
-  <p style="font-family:'Inter',system-ui,sans-serif;font-size:0.88rem;
+  <p style="font-family:'Inter',system-ui,sans-serif;font-size:1rem;
             color:#DDE4F0;line-height:1.65;margin:0;padding:0 8px;">
     Turns a location and a population into a camp layout that follows
     humanitarian shelter standards.
@@ -1184,7 +1184,7 @@ header[data-testid="stHeader"] {
     # ── Below-card note ────────────────────────────────────────────────────────
     st.markdown(
         """
-<p style="font-family:'Inter',system-ui,sans-serif;font-size:0.76rem;
+<p style="font-family:'Inter',system-ui,sans-serif;font-size:0.82rem;
           color:#9FB2D4;text-align:center;margin:16px 0 0 0;line-height:1.5;">
   Research prototype, access restricted for evaluation.
 </p>
@@ -1195,15 +1195,16 @@ header[data-testid="stHeader"] {
     # ── Footer ─────────────────────────────────────────────────────────────────
     st.markdown(
         """
-<div style="position:fixed;bottom:0;left:0;right:0;padding:14px 24px;
+<div style="position:fixed;bottom:0;left:0;right:0;padding:16px 24px;
             text-align:center;font-family:'Inter',system-ui,sans-serif;
-            font-size:0.72rem;color:#9FB2D4;line-height:1.6;">
-  Bachelor&#8217;s thesis project, University of Twente
+            font-size:0.9rem;color:#B8C8E4;line-height:1.7;">
+  Made by Jelle Vuursteen
   &nbsp;&middot;&nbsp;
   <a href="https://www.linkedin.com/in/jellevuursteen/"
      target="_blank" rel="noopener noreferrer"
-     style="color:#9FB2D4;text-decoration:underline;text-underline-offset:2px;">
-    LinkedIn
+     style="color:#E8EEF8;font-weight:500;text-decoration:underline;
+            text-underline-offset:3px;letter-spacing:0.01em;">
+    Connect on LinkedIn
   </a>
 </div>
 """,
