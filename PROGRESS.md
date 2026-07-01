@@ -2,6 +2,98 @@
 
 ---
 
+## HANDOFF — 1 July 2026 (Session 12 — blueprint-lanes welcome screen + button fix — 2 commits)
+
+### Session objective
+
+Redesign the welcome/password gate as a blueprint-lanes dark screen and
+fix the bottom-right continue button being cut off by Streamlit's overlay.
+Hard boundary: no placement, scoring, compliance, capacity, or site-search
+logic changed; authentication behaviour identical.
+
+---
+
+### Commit 1 — Blueprint-lanes welcome screen (`740fa26`)
+
+**File changed:** `app.py` — `_render_password_gate()` only (+86 / -26 lines).
+
+**Design:**
+- Full-screen deep indigo background (#1F4788) on `html`/`body`; all
+  intermediate Streamlit containers (`.stApp`, `.main`,
+  `[data-testid="stAppViewContainer"]`) are set transparent so the grid
+  shows through uninterrupted.
+- Blueprint lane grid: repeating horizontal + vertical 1 px bone lines
+  at 17% opacity (`rgba(244,241,234,0.17)`), 52 px pitch, via
+  CSS `background-image: linear-gradient(...)`.
+- The Streamlit header bar is also set to indigo to blend seamlessly.
+
+**Content (centred, 460 px max-width column):**
+- Hamlet logo 84 px, **bone version** (#F4F1EA fill) — same SVG path as
+  the app header, inverted for the dark background.
+- "Hamlet" wordmark — Source Serif 4, bone, 2 rem.
+- Tagline "Refugee camp layout generator" — Inter, #C9D4E8.
+- Description — Inter, #DDE4F0: "Turns a location and a population into a
+  camp layout that follows humanitarian shelter standards."
+- Entry card (bone #F4F1EA background, 12 px border-radius, soft shadow)
+  containing:
+  - The real working password input (`st.form`, Enter-key supported).
+  - "Continue" button (Hamlet Indigo #1F4788, full-width, primary type).
+- Below-card note — #9FB2D4, 0.76 rem: "Research prototype, access
+  restricted for evaluation."
+- Fixed footer (bottom of viewport) — #9FB2D4, 0.72 rem:
+  "Bachelor's thesis project, University of Twente · LinkedIn"
+  with the LinkedIn text as an `<a href="https://www.linkedin.com/in/jellevuursteen/"
+  target="_blank">` link.
+
+**Authentication logic: completely unchanged.**
+- Still reads `st.secrets["APP_PASSWORD"]`; still calls `st.stop()` if
+  missing; still sets `session_state["authenticated"]` on success; still
+  shows "Incorrect access code" and stays on the gate on failure.
+- The `st.form("hamlet_gate", ...)` key, the `st.text_input(...)`, the
+  `st.form_submit_button(...)`, and all `if submitted:` branching are
+  character-for-character identical to Session 11.
+
+---
+
+### Commit 2 — Bottom-right continue button moved left (`df05920`)
+
+**File changed:** `app.py` — one line in `_render_fixed_continue()`.
+
+The fixed bottom-right continue button was partially hidden behind
+Streamlit's own floating overlay/toolbar in the bottom-right corner.
+
+**Fix:** added `margin-right:100px` to the button's inline style.
+In the flex bar (`justify-content:flex-end; padding:0 24px`), this places
+the button's right edge 124 px from the viewport right (100 px margin +
+24 px bar padding), clearing the Streamlit overlay.
+
+Label, colours, disabled/enabled state, JS wiring, and bottom offset are
+all unchanged.
+
+---
+
+### Regression results
+
+Both commits: 23/23 logic tests pass (21 fast + test_stage4 + test_shelter_placement).
+Pre-existing failures unchanged: `test_community_retry.py` (sys.exit(1)),
+`test_capacity_estimator.py` (Windows encoding).
+
+---
+
+### Confirmation: logic untouched
+
+No changes to `src/`, test files, authentication logic, placement,
+scoring, compliance, capacity, or site-search.
+
+---
+
+### App state at session end
+
+One clean Streamlit instance on port 8505. Branch `main`.
+Commits: `740fa26` (welcome redesign), `df05920` (button fix).
+
+---
+
 ## HANDOFF — 1 July 2026 (Session 11 — welcome screen + password gate — 3 commits)
 
 ### Session objective
