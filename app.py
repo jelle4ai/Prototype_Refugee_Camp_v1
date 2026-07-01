@@ -104,7 +104,7 @@ def _render_fixed_continue(
         f'<button id="hfc-{btn_key}"'
         f' style="background:{btn_color};color:#F4F1EA;border:none;border-radius:8px;'
         f'font-family:Inter,sans-serif;font-weight:500;font-size:0.9rem;'
-        f'padding:0.55rem 1.4rem;cursor:{btn_cursor};margin-left:auto;">'
+        f'padding:0.55rem 1.4rem;cursor:{btn_cursor};margin-left:auto;margin-right:100px;">'
         f'{label}{arrow}</button>'
         f'</div>',
         unsafe_allow_html=True,
