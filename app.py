@@ -1047,8 +1047,121 @@ def _scroll_to_top() -> None:
     )
 
 
+def _render_password_gate() -> None:
+    """Welcome screen shown to unauthenticated visitors.
+
+    Reads APP_PASSWORD from st.secrets — never hardcoded.
+    If the secret is absent, calls st.stop() (fail-safe deny).
+    On correct password: sets session_state['authenticated'] and reruns.
+    On wrong password: shows an error and stays on the gate.
+    No stage handler or API call path is reachable from here.
+    """
+    try:
+        expected = st.secrets["APP_PASSWORD"]
+    except (KeyError, FileNotFoundError):
+        st.error(
+            "**Access unavailable.** "
+            "The `APP_PASSWORD` secret has not been configured for this deployment. "
+            "Contact the administrator."
+        )
+        st.stop()
+
+    # Gate-specific layout overrides: centre a ~440 px panel, remove stage top-padding.
+    st.markdown(
+        """<style>
+.block-container {
+    padding-top: 0 !important;
+    max-width: 440px !important;
+    margin: 0 auto !important;
+    padding-bottom: 40px !important;
+}
+</style>""",
+        unsafe_allow_html=True,
+    )
+
+    # Logo + wordmark + tagline
+    st.markdown(
+        """
+<div style="text-align:center;padding:56px 0 24px 0;">
+  <svg viewBox="-66 -66 132 132" width="84" height="84"
+       role="img" aria-label="Hamlet mark"
+       style="display:block;margin:0 auto 18px auto;">
+    <g fill="#1F4788">
+      <rect x="-7"    y="-53"   width="14" height="14" rx="3"/>
+      <rect x="25.5"  y="-39.5" width="14" height="14" rx="3"/>
+      <rect x="39"    y="-7"    width="14" height="14" rx="3"/>
+      <rect x="25.5"  y="25.5"  width="14" height="14" rx="3"/>
+      <rect x="-7"    y="39"    width="14" height="14" rx="3"/>
+      <rect x="-39.5" y="25.5"  width="14" height="14" rx="3"/>
+      <rect x="-53"   y="-7"    width="14" height="14" rx="3"/>
+      <rect x="-39.5" y="-39.5" width="14" height="14" rx="3"/>
+    </g>
+    <circle r="21" fill="#C2603F"/>
+  </svg>
+  <div style="font-family:'Source Serif 4',Georgia,serif;font-size:2.2rem;
+              font-weight:500;color:#1F4788;line-height:1.1;">Hamlet</div>
+  <div style="font-family:'Inter',system-ui,sans-serif;font-size:0.82rem;
+              color:#6B655E;margin-top:6px;letter-spacing:0.02em;">
+    Refugee camp layout generator
+  </div>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+
+    # Intro
+    st.markdown(
+        """
+<p style="font-family:'Inter',system-ui,sans-serif;font-size:0.92rem;color:#3D3830;
+          text-align:center;line-height:1.65;margin:0 0 28px 0;">
+Hamlet automatically generates Sphere-compliant refugee camp layouts from a population
+count and a location. It is a research prototype, made available for evaluation — access
+is restricted by a shared access code.
+</p>
+""",
+        unsafe_allow_html=True,
+    )
+
+    # Capture whether the last attempt was wrong, then clear the flag.
+    wrong = st.session_state.pop("_gate_wrong_password", False)
+
+    # st.form handles Enter-key submission natively.
+    with st.form("hamlet_gate", clear_on_submit=True):
+        pw = st.text_input(
+            "Access code",
+            type="password",
+            placeholder="Enter access code",
+            label_visibility="collapsed",
+        )
+        submitted = st.form_submit_button(
+            "Continue →",
+            type="primary",
+            use_container_width=True,
+        )
+
+    if submitted:
+        if pw == expected:
+            st.session_state["authenticated"] = True
+            st.rerun()
+        else:
+            st.session_state["_gate_wrong_password"] = True
+            st.rerun()
+
+    if wrong:
+        st.error("Incorrect access code — please try again.")
+
+
 def main():
     apply_brand()
+
+    # ── Authentication gate ────────────────────────────────────────────────────
+    # Must run before init_session_state() and every stage handler so that no
+    # stage code (and therefore no Anthropic API call) can execute unless the
+    # visitor has entered the correct access code.
+    if not st.session_state.get("authenticated"):
+        _render_password_gate()
+        return
+
     init_session_state()
 
     current_stage = st.session_state["stage"]
