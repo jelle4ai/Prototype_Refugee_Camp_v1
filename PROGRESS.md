@@ -2,6 +2,78 @@
 
 ---
 
+## HANDOFF — 1 July 2026 (Session 13 — welcome screen enlargement + button nudge — 2 commits)
+
+### Session objective
+
+Enlarge the blueprint-lanes welcome screen elements and strengthen the
+LinkedIn CTA; nudge the bottom-right continue button 10 px further left.
+Hard boundary: no placement, scoring, compliance, capacity, or site-search
+logic changed; authentication behaviour identical.
+
+---
+
+### Commit 1 — Enlarged welcome screen + stronger LinkedIn CTA (`7d9f132`)
+
+**File changed:** `app.py` — `_render_password_gate()` only (16 ins / 15 del).
+
+Size changes:
+| Element | Before | After |
+|---|---|---|
+| Logo | 84 px | 128 px |
+| Wordmark "Hamlet" | 2 rem | 3.2 rem |
+| Tagline | 0.82 rem | 1 rem |
+| Description | 0.88 rem | 1 rem |
+| Below-card note | 0.76 rem | 0.82 rem |
+| Column max-width | 460 px | 500 px |
+| Top padding | 64 px | 48 px (reduced to compensate for taller logo) |
+
+Footer / contact CTA:
+- Font size: 0.72 rem → 0.9 rem
+- Base text colour: #9FB2D4 → #B8C8E4
+- Content changed to: "Made by Jelle Vuursteen · Connect on LinkedIn"
+- Link text: "LinkedIn" → "Connect on LinkedIn"
+- Link colour: #9FB2D4 → #E8EEF8 (noticeably brighter, clearly clickable)
+- Link weight: normal → 500 (medium)
+- URL unchanged: https://www.linkedin.com/in/jellevuursteen/
+
+Authentication logic: character-for-character identical to Session 12
+(`st.secrets["APP_PASSWORD"]`, `st.stop()` on missing key,
+`session_state["authenticated"]` on success, error flag on failure).
+
+---
+
+### Commit 2 — Button nudge (`f0cb42c`)
+
+**File changed:** `app.py` — one character in `_render_fixed_continue()`.
+
+`margin-right` on the fixed bottom-right continue button: 100 px → 110 px.
+Button now sits 134 px from the viewport right edge (110 + 24 px bar
+padding), 10 px further clear of the Streamlit overlay. Nothing else changed.
+
+---
+
+### Regression results
+
+Both commits: 23/23 logic tests pass (21 fast + test_stage4 + test_shelter_placement).
+Pre-existing failures unchanged: `test_community_retry.py`, `test_capacity_estimator.py`.
+
+---
+
+### Confirmation: logic untouched
+
+No changes to `src/`, test files, authentication logic, placement,
+scoring, compliance, capacity, or site-search.
+
+---
+
+### App state at session end
+
+One clean Streamlit instance on port 8505. Branch `main`.
+Commits: `7d9f132` (welcome enlargement), `f0cb42c` (button nudge).
+
+---
+
 ## HANDOFF — 1 July 2026 (Session 12 — blueprint-lanes welcome screen + button fix — 2 commits)
 
 ### Session objective
