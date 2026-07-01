@@ -1143,8 +1143,8 @@ header[data-testid="stHeader"] {
   </div>
   <p style="font-family:'Inter',system-ui,sans-serif;font-size:1rem;
             color:#DDE4F0;line-height:1.65;margin:0;padding:0 8px;">
-    Turns a location and a population into a camp layout that follows
-    humanitarian shelter standards.
+    Hamlet designs refugee camp layouts that meet recognised humanitarian
+    shelter standards.
   </p>
 </div>
 """,
