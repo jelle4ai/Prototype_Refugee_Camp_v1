@@ -1109,6 +1109,13 @@ header[data-testid="stHeader"] {
     background-color: #FFFFFF !important;
     border-color: #D4CEC5 !important;
 }
+/* Hide Streamlit's "Press Enter to submit form" instruction inside the gate card.
+   Streamlit renders this as [data-testid="InputInstructions"] in 1.x;
+   the small-element fallback covers older renders. */
+[data-testid="InputInstructions"],
+[data-testid="stForm"] small {
+    display: none !important;
+}
 </style>""",
         unsafe_allow_html=True,
     )
@@ -1169,6 +1176,30 @@ header[data-testid="stHeader"] {
             type="primary",
             use_container_width=True,
         )
+
+    # Best-effort: tell the browser this is a one-time access code, not a
+    # new-password signup field. autocomplete="one-time-code" suppresses the
+    # "generate a strong password" popup better than autocomplete="off" (which
+    # browsers now routinely ignore for password-type inputs). Browsers don't
+    # always fully obey this hint — it reduces but may not eliminate the popup.
+    # The field stays type="password" (masked); auth logic is unchanged.
+    components.html(
+        """<script>
+(function () {
+  function applyAttrs() {
+    var p = window.parent.document;
+    var inp = p.querySelector('[data-testid="stForm"] input[type="password"]');
+    if (inp) {
+      inp.setAttribute('autocomplete', 'one-time-code');
+      inp.setAttribute('name', 'access-code');
+    }
+  }
+  setTimeout(applyAttrs, 150);
+  setTimeout(applyAttrs, 500);
+})();
+</script>""",
+        height=0,
+    )
 
     if submitted:
         if pw == expected:
