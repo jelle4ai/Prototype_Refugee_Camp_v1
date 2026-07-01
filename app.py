@@ -1048,7 +1048,7 @@ def _scroll_to_top() -> None:
 
 
 def _render_password_gate() -> None:
-    """Welcome screen shown to unauthenticated visitors.
+    """Blueprint-lanes welcome screen shown to unauthenticated visitors.
 
     Reads APP_PASSWORD from st.secrets — never hardcoded.
     If the secret is absent, calls st.stop() (fail-safe deny).
@@ -1066,27 +1066,62 @@ def _render_password_gate() -> None:
         )
         st.stop()
 
-    # Gate-specific layout overrides: centre a ~440 px panel, remove stage top-padding.
+    # ── Blueprint-lanes CSS ────────────────────────────────────────────────────
+    # Deep indigo background with a faint bone-coloured grid (16-17 % opacity).
+    # Intermediate containers (.stApp, .main, etc.) are made transparent so the
+    # html/body blueprint pattern shows through uninterrupted.
     st.markdown(
         """<style>
+html, body {
+    background-color: #1F4788 !important;
+    background-image:
+        linear-gradient(rgba(244,241,234,0.17) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(244,241,234,0.17) 1px, transparent 1px) !important;
+    background-size: 52px 52px !important;
+    background-attachment: fixed !important;
+}
+.stApp, .main,
+[data-testid="stAppViewContainer"],
+[data-testid="stMain"] {
+    background-color: transparent !important;
+    background-image: none !important;
+}
+header[data-testid="stHeader"] {
+    background-color: #1F4788 !important;
+    border-bottom: none !important;
+    box-shadow: none !important;
+}
 .block-container {
+    background: transparent !important;
     padding-top: 0 !important;
-    max-width: 440px !important;
+    padding-bottom: 80px !important;
+    max-width: 460px !important;
     margin: 0 auto !important;
-    padding-bottom: 40px !important;
+}
+[data-testid="stForm"] {
+    background: #F4F1EA !important;
+    border-radius: 12px !important;
+    padding: 28px !important;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.25) !important;
+    border: none !important;
+}
+[data-testid="stForm"] .stTextInput > div > div > input {
+    background-color: #FFFFFF !important;
+    border-color: #D4CEC5 !important;
 }
 </style>""",
         unsafe_allow_html=True,
     )
 
-    # Logo + wordmark + tagline
+    # ── Logo + wordmark + tagline + description ────────────────────────────────
+    # Logo uses bone fill (#F4F1EA) so the mark reads on the indigo background.
     st.markdown(
         """
-<div style="text-align:center;padding:56px 0 24px 0;">
+<div style="text-align:center;padding:64px 0 28px 0;">
   <svg viewBox="-66 -66 132 132" width="84" height="84"
        role="img" aria-label="Hamlet mark"
-       style="display:block;margin:0 auto 18px auto;">
-    <g fill="#1F4788">
+       style="display:block;margin:0 auto 20px auto;">
+    <g fill="#F4F1EA">
       <rect x="-7"    y="-53"   width="14" height="14" rx="3"/>
       <rect x="25.5"  y="-39.5" width="14" height="14" rx="3"/>
       <rect x="39"    y="-7"    width="14" height="14" rx="3"/>
@@ -1098,34 +1133,30 @@ def _render_password_gate() -> None:
     </g>
     <circle r="21" fill="#C2603F"/>
   </svg>
-  <div style="font-family:'Source Serif 4',Georgia,serif;font-size:2.2rem;
-              font-weight:500;color:#1F4788;line-height:1.1;">Hamlet</div>
+  <div style="font-family:'Source Serif 4',Georgia,serif;font-size:2rem;
+              font-weight:500;color:#F4F1EA;line-height:1.1;margin-bottom:8px;">
+    Hamlet
+  </div>
   <div style="font-family:'Inter',system-ui,sans-serif;font-size:0.82rem;
-              color:#6B655E;margin-top:6px;letter-spacing:0.02em;">
+              color:#C9D4E8;letter-spacing:0.04em;margin-bottom:20px;">
     Refugee camp layout generator
   </div>
+  <p style="font-family:'Inter',system-ui,sans-serif;font-size:0.88rem;
+            color:#DDE4F0;line-height:1.65;margin:0;padding:0 8px;">
+    Turns a location and a population into a camp layout that follows
+    humanitarian shelter standards.
+  </p>
 </div>
 """,
         unsafe_allow_html=True,
     )
 
-    # Intro
-    st.markdown(
-        """
-<p style="font-family:'Inter',system-ui,sans-serif;font-size:0.92rem;color:#3D3830;
-          text-align:center;line-height:1.65;margin:0 0 28px 0;">
-Hamlet automatically generates Sphere-compliant refugee camp layouts from a population
-count and a location. It is a research prototype, made available for evaluation — access
-is restricted by a shared access code.
-</p>
-""",
-        unsafe_allow_html=True,
-    )
-
-    # Capture whether the last attempt was wrong, then clear the flag.
+    # ── Entry card ─────────────────────────────────────────────────────────────
+    # CSS above styles the stForm container as the bone card.
+    # Authentication logic is identical to the original gate — only the
+    # surrounding visual design has changed.
     wrong = st.session_state.pop("_gate_wrong_password", False)
 
-    # st.form handles Enter-key submission natively.
     with st.form("hamlet_gate", clear_on_submit=True):
         pw = st.text_input(
             "Access code",
@@ -1149,6 +1180,35 @@ is restricted by a shared access code.
 
     if wrong:
         st.error("Incorrect access code — please try again.")
+
+    # ── Below-card note ────────────────────────────────────────────────────────
+    st.markdown(
+        """
+<p style="font-family:'Inter',system-ui,sans-serif;font-size:0.76rem;
+          color:#9FB2D4;text-align:center;margin:16px 0 0 0;line-height:1.5;">
+  Research prototype, access restricted for evaluation.
+</p>
+""",
+        unsafe_allow_html=True,
+    )
+
+    # ── Footer ─────────────────────────────────────────────────────────────────
+    st.markdown(
+        """
+<div style="position:fixed;bottom:0;left:0;right:0;padding:14px 24px;
+            text-align:center;font-family:'Inter',system-ui,sans-serif;
+            font-size:0.72rem;color:#9FB2D4;line-height:1.6;">
+  Bachelor&#8217;s thesis project, University of Twente
+  &nbsp;&middot;&nbsp;
+  <a href="https://www.linkedin.com/in/jellevuursteen/"
+     target="_blank" rel="noopener noreferrer"
+     style="color:#9FB2D4;text-decoration:underline;text-underline-offset:2px;">
+    LinkedIn
+  </a>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
 
 
 def main():
