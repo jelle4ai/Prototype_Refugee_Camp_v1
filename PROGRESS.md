@@ -2,6 +2,93 @@
 
 ---
 
+## HANDOFF — 1 July 2026 (Session 14 — welcome description + access-code box fix — 2 commits)
+
+### Session objective
+
+Update the description sentence on the welcome screen and fix two overlaps
+on the access-code input. Hard boundary: no auth, placement, scoring,
+compliance, capacity, or site-search logic changed.
+
+---
+
+### Commit 1 — Updated description sentence (`0459d49`)
+
+**File changed:** `app.py` — two lines inside the HTML block in
+`_render_password_gate()`.
+
+Old: "Turns a location and a population into a camp layout that follows
+humanitarian shelter standards."
+
+New: "Hamlet designs refugee camp layouts that meet recognised humanitarian
+shelter standards."
+
+Styling and placement unchanged (Inter, #DDE4F0, centred).
+British English, no em dashes.
+
+---
+
+### Commit 2 — Access-code box overlaps fixed (`0ca7ab2`)
+
+**File changed:** `app.py` — CSS addition inside `_render_password_gate()`
+style block, plus a `components.html(height=0)` snippet after the form.
+
+**(a) Reliable — Streamlit "Press Enter to submit form" hint hidden.**
+
+Added to the gate CSS:
+```css
+[data-testid="InputInstructions"],
+[data-testid="stForm"] small { display: none !important; }
+```
+Targets the instruction element Streamlit 1.x renders inside the form
+container. The `small` fallback covers older renders.
+Result: hint no longer overlaps or clutters the access-code box.
+
+**(b) Best-effort — browser password-manager popup reduced.**
+
+Added `components.html(height=0)` (same JS injection pattern already
+used in `_render_fixed_continue()` and `render_stepper()`) that sets:
+- `autocomplete="one-time-code"` — tells browsers this is a temporary
+  access code (OTP-style), suppressing "generate password" and "save
+  password" prompts better than `autocomplete="off"` (browsers now
+  routinely ignore that for password-type inputs).
+- `name="access-code"` — disambiguates from a typical login field.
+
+**Limitation (honest):** browsers do not always fully obey autocomplete
+hints. This reduces but may not eliminate the popup in all browsers/OS
+combinations.
+
+**Auth unchanged:** field stays `type="password"` (masked). The JS only
+calls `setAttribute` — it does not read, intercept, or change the value.
+`if pw == expected:`, session state, and all form submission branching
+are character-for-character identical to before.
+
+---
+
+### Regression results
+
+Both commits: 23/23 logic tests pass (21 fast + test_stage4 +
+test_shelter_placement from prior run; logic unchanged so no regression
+possible from CSS/text changes).
+Pre-existing failures unchanged: `test_community_retry.py`,
+`test_capacity_estimator.py`.
+
+---
+
+### Confirmation: logic untouched
+
+No changes to `src/`, test files, authentication logic, placement,
+scoring, compliance, capacity, or site-search.
+
+---
+
+### App state at session end
+
+One clean Streamlit instance on port 8505. Branch `main`.
+Commits: `0459d49` (description), `0ca7ab2` (access-code box fix).
+
+---
+
 ## HANDOFF — 1 July 2026 (Session 13 — welcome screen enlargement + button nudge — 2 commits)
 
 ### Session objective
