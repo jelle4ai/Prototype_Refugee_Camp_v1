@@ -2,6 +2,154 @@
 
 ---
 
+## HANDOFF — 1 July 2026 (Session 11 — welcome screen + password gate — 3 commits)
+
+### Session objective
+
+Add an authentication gate in front of the entire app to protect the Anthropic
+API credits before sharing for evaluation.  Hard boundary: no placement, scoring,
+compliance, capacity, or site-search logic changed.
+
+---
+
+### How the gate works
+
+`main()` (in `app.py`) calls `apply_brand()` (CSS only, no API), then immediately
+checks `st.session_state.get("authenticated")`.  If not set, it calls
+`_render_password_gate()` and **returns** — no stage handler runs, and therefore
+no path to `get_ai_response()` (the only Anthropic API call) is reachable.
+
+`_render_password_gate()`:
+- Reads `st.secrets["APP_PASSWORD"]`; if the key is absent, calls `st.stop()`
+  (fail-safe deny — the app never opens).
+- Shows the welcome screen: Hamlet logo (84 px SVG), "Hamlet" wordmark in indigo
+  Source Serif 4, a one-sentence tagline, a 2-sentence intro, and a password form
+  (Enter-key supported via `st.form`).
+- Correct password → `session_state["authenticated"] = True` + `st.rerun()` →
+  normal Stage 1 flow.
+- Wrong password → inline error, gate stays; no stage code or API call happens.
+
+On-brand styling (bone background #EFEBE0, indigo #1F4788, Source Serif 4
+headings, Inter body) identical to the rest of the app.
+
+---
+
+### Commit 1 — Welcome + password gate (`eaf7b97`)
+
+**File changed:** `app.py` only (+113 lines).
+
+- Added `_render_password_gate()` function (logo HTML, intro, `st.form` with
+  `clear_on_submit=True`, session-state error-flag cycle).
+- Modified `main()`: gate check runs right after `apply_brand()` (CSS injection
+  only), before `init_session_state()` and all stage handlers.
+
+**Security confirmation:**
+- No secret value hardcoded in any file.
+- No API call path reachable for unauthenticated visitors.
+- Missing `APP_PASSWORD` secret → `st.stop()` (fail-safe deny, not an open app).
+
+---
+
+### Commit 2 — Secrets template (`e8a6a5b`)
+
+**File changed:** `.streamlit/secrets.toml.example`.
+
+- Updated to show both required keys: `ANTHROPIC_API_KEY = "..."` and
+  `APP_PASSWORD = "..."`, with a comment explaining that `secrets.toml` is
+  gitignored and must be set via the Streamlit Cloud Secrets UI.
+- Local `.streamlit/secrets.toml` updated with a dev placeholder password
+  for local testing (gitignored — never committed; value not recorded here).
+
+**Gitignore confirmation:** `.gitignore` line 1 is `.streamlit/secrets.toml`.
+Verified with `git check-ignore -v`.
+
+**Secret scan:** `grep` over all committed files (`git ls-files`) found zero
+occurrences of any password value, the API key, or a bare `APP_PASSWORD =`
+assignment.
+
+---
+
+### Commit 3 — Deploy-readiness: Pillow added to requirements.txt (`9c7171f`)
+
+**File changed:** `requirements.txt` (+1 line).
+
+`Pillow==12.2.0` was missing from the existing requirements.txt; it is used in
+`app.py` for the `_hamlet_favicon()` function (`from PIL import Image, ImageDraw`).
+All 8 direct dependencies are now listed:
+
+```
+streamlit==1.58.0
+plotly==6.8.0
+shapely==2.1.2
+networkx==3.6.1
+geopy==2.4.1
+anthropic==0.106.0
+Pillow==12.2.0
+requests==2.34.2
+```
+
+Dry-run `pip install -r requirements.txt` confirms all 8 packages resolve cleanly.
+
+---
+
+### Deploy notes for Streamlit Community Cloud
+
+**Secrets — must set via the Cloud Secrets UI (Apps → ⋮ → Settings → Secrets):**
+```toml
+ANTHROPIC_API_KEY = "<your Anthropic key>"
+APP_PASSWORD      = "<choose a strong shared password>"
+```
+Do NOT commit `secrets.toml`.
+
+**Python version:** local dev uses Python 3.14.  Streamlit Community Cloud
+supports up to Python 3.12 (as of July 2026).  The code uses `str | None` syntax
+(requires Python ≥ 3.10), so set Python to **3.12** in the Cloud app settings.
+All pinned package versions are compatible with Python 3.12.
+
+**No `packages.txt` needed:** `shapely ≥ 2.0` bundles GEOS; no system-level
+dependencies are required.
+
+**Outbound internet:** the Overpass/OSM calls and the Anthropic API calls both
+need outbound internet access, which Streamlit Community Cloud allows by default.
+
+**Port:** the `--server.port 8505` flag is local-only.  Cloud auto-assigns a port
+and a public URL; no flag is needed in the Cloud deployment.
+
+**Config:** `.streamlit/config.toml` (theme colours) will be applied automatically
+by Cloud.
+
+**To deploy (user action required — needs Streamlit Cloud account):**
+1. Push this branch to GitHub.
+2. Go to share.streamlit.io → New app → choose repo + branch + `app.py`.
+3. Set Python to 3.12.
+4. Add `ANTHROPIC_API_KEY` and `APP_PASSWORD` in the Secrets UI.
+5. Deploy.
+
+---
+
+### Regression results
+
+All 3 commits: 21/21 logic tests pass.
+Pre-existing failures (unrelated to this session, unchanged):
+- `test_community_retry.py` — module-level `sys.exit(1)`.
+- `test_capacity_estimator.py` — Windows console encoding error on `≤` character.
+
+---
+
+### Confirmation: logic untouched
+
+Gate code is in `app.py` only.  No changes to `src/`, test files,
+placement/scoring/compliance/capacity/site-search logic, or stage handlers.
+
+---
+
+### App state at session end
+
+One clean Streamlit instance on port 8505. Branch `main`. Three new commits
+(`eaf7b97`, `e8a6a5b`, `9c7171f`).
+
+---
+
 ## HANDOFF — 28 June 2026 (Session 10 — remove Wp, add letters to map legend — 2 commits)
 
 ### Session objective
